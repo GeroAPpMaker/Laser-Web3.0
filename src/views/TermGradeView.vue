@@ -24,32 +24,48 @@ async function loadAdviserData() {
     if (authError || !user) throw new Error('Not authenticated.')
     currentUserEmail.value = user.email
 
-    // Get assigned section
+    // 1. Get assigned section (using maybeSingle to prevent crash if empty)
     const { data: sectionData, error: sectionError } = await supabase
       .from('adviser_sections')
       .select('section')
       .eq('teacher_email', currentUserEmail.value)
-      .single()
+      .maybeSingle()
       
-    if (sectionError) throw new Error('No advisory section assigned.')
+    if (sectionError || !sectionData) {
+      throw new Error(`No advisory section assigned to ${currentUserEmail.value}`)
+    }
     mySection.value = sectionData.section
 
-    // Fetch students AND their grades
+    // 2. Fetch students in this section
     const { data: students, error: studentError } = await supabase
       .from('students')
-      .select(`
-        id,
-        lrn,
-        name,
-        grades ( term, subject, grade, remarks )
-      `)
+      .select('*')
       .eq('section', mySection.value)
       .order('name')
 
     if (studentError) throw studentError
-    rawStudentsData.value = students || []
+    if (!students || students.length === 0) {
+      rawStudentsData.value = []
+      return
+    }
+
+    // 3. Fetch grades for these students (matches on LRN or ID)
+    const studentLrns = students.map(s => s.lrn)
+    const { data: grades, error: gradeError } = await supabase
+      .from('grades')
+      .select('*')
+      .in('lrn', studentLrns) // Adjust column to 'student_id' if your grades table uses student_id
+
+    if (gradeError) throw gradeError
+
+    // 4. Combine students and grades in memory
+    rawStudentsData.value = students.map(s => ({
+      ...s,
+      grades: (grades || []).filter(g => g.lrn === s.lrn)
+    }))
 
   } catch (err) {
+    console.error('TermGradeView Error:', err)
     errorMessage.value = err.message
   } finally {
     loading.value = false

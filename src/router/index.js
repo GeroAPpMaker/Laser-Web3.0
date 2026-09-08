@@ -64,6 +64,13 @@ const router = createRouter({
       name: 'department',
       component: () => import('../views/Department.vue'),
     },
+    // Add this inside the routes array in src/router/index.js
+    {
+      path: '/term-grade',
+      name: 'term-grade',
+      component: () => import('../views/TermGradeView.vue'),
+      meta: { requiresAuth: true, role: 'teacher' },
+    },
     {
       path: '/office/:name',
       name: 'office',

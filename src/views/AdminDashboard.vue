@@ -2,8 +2,8 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { supabase } from '../supabase.js'
 
-// Tab navigation state
-const activeTab = ref('teachers') // 'teachers' | 'advisers' | 'students' | 'grades'
+// Tab navigation state ('teachers' | 'advisers' | 'students' | 'grades' | 'summary')
+const activeTab = ref('teachers') 
 const loading = ref(false)
 const errorMessage = ref('')
 
@@ -13,6 +13,19 @@ const assignments = ref([])
 const adviserSections = ref([])
 const students = ref([])
 const grades = ref([])
+const matrixGrades = ref([]) // Grades for the summary matrix tab
+
+// Core 8 Subjects List
+const subjectsList = ref([
+  'Filipino',
+  'English',
+  'Mathematics',
+  'Science',
+  'Araling Panlipunan',
+  'EsP',
+  'TLE',
+  'MAPEH'
+])
 
 // Filters
 const searchTeacher = ref('')
@@ -21,6 +34,10 @@ const selectedGradeSection = ref('ALL')
 const selectedGradeTerm = ref('term 1')
 const selectedGradeSubject = ref('ALL')
 const terms = ['term 1', 'term 2', 'term 3']
+
+// Summary Tab Filters
+const selectedSummarySection = ref('')
+const selectedSummaryTerm = ref('term 1')
 
 // New Record States (for inline Add forms)
 const newTeacher = ref({ name: '', email: '', role: 'subject_teacher' })
@@ -43,6 +60,13 @@ const uniqueSubjects = computed(() => {
   return [...new Set(assignments.value.map(a => a.subject))].sort()
 })
 
+// Auto-select first available section for summary matrix when sections load
+watch(uniqueSections, (secs) => {
+  if (secs.length > 0 && !selectedSummarySection.value) {
+    selectedSummarySection.value = secs[0]
+  }
+}, { immediate: true })
+
 // Combined Teacher + Assignments View Model
 const teacherOverview = computed(() => {
   return teachers.value.map(teacher => {
@@ -61,6 +85,43 @@ const filteredStudents = computed(() => {
   return students.value.filter(s => s.section === selectedStudentSection.value)
 })
 
+// Computed Matrix Data for the Term Summary Tab
+const formattedSummaryStudents = computed(() => {
+  if (!selectedSummarySection.value) return []
+
+  const sectionStudents = students.value.filter(s => s.section === selectedSummarySection.value)
+
+  return sectionStudents.map(student => {
+    // Match grades for this student & selected term
+    const studentGrades = matrixGrades.value.filter(g => 
+      g.lrn === student.lrn && 
+      g.term?.toLowerCase() === selectedSummaryTerm.value.toLowerCase()
+    )
+
+    const subjectGrades = {}
+    let total = 0
+    let count = 0
+
+    studentGrades.forEach(g => {
+      subjectGrades[g.subject] = g.grade
+      if (g.grade !== null && g.grade !== undefined && g.grade !== '') {
+        total += Number(g.grade)
+        count++
+      }
+    })
+
+    const average = count > 0 ? (total / count).toFixed(2) : 'N/A'
+
+    return {
+      id: student.id,
+      lrn: student.lrn,
+      name: student.name,
+      average,
+      ...subjectGrades
+    }
+  })
+})
+
 onMounted(async () => {
   await loadAllData()
 })
@@ -76,6 +137,9 @@ async function loadAllData() {
       fetchStudents(),
       fetchGrades()
     ])
+    if (activeTab.value === 'summary') {
+      await fetchSummaryGrades()
+    }
   } catch (err) {
     errorMessage.value = `Failed to load admin data: ${err.message || err}`
   } finally {
@@ -110,7 +174,7 @@ async function fetchStudents() {
 
 async function fetchGrades() {
   let query = supabase.from('grades').select('*').order('created_at', { ascending: false })
-  if (selectedGradeTerm.value) query = query.eq('term', selectedGradeTerm.value)
+  if (selectedGradeTerm.value) query = query.ilike('term', selectedGradeTerm.value)
   if (selectedGradeSection.value !== 'ALL') query = query.eq('section', selectedGradeSection.value)
   if (selectedGradeSubject.value !== 'ALL') query = query.eq('subject', selectedGradeSubject.value)
   
@@ -119,8 +183,28 @@ async function fetchGrades() {
   grades.value = data || []
 }
 
+async function fetchSummaryGrades() {
+  if (!selectedSummarySection.value) return
+  const { data, error } = await supabase
+    .from('grades')
+    .select('*')
+    .eq('section', selectedSummarySection.value)
+    .ilike('term', selectedSummaryTerm.value)
+    
+  if (error) {
+    errorMessage.value = `Failed to fetch term summary: ${error.message}`
+  } else {
+    matrixGrades.value = data || []
+  }
+}
+
+// Watchers for tab transitions and filter changes
 watch([selectedGradeSection, selectedGradeTerm, selectedGradeSubject], () => {
   if (activeTab.value === 'grades') fetchGrades()
+})
+
+watch([selectedSummarySection, selectedSummaryTerm, activeTab], () => {
+  if (activeTab.value === 'summary') fetchSummaryGrades()
 })
 
 // --- GENERIC CRUD METHODS ---
@@ -135,7 +219,7 @@ async function deleteRecord(table, id, fetchCallback) {
   }
 }
 
-// --- SPECIFIC ADD METHODS WITH ERROR HANDLING ---
+// --- SPECIFIC ADD METHODS ---
 async function addTeacher() {
   if (!newTeacher.value.name || !newTeacher.value.email) return
   errorMessage.value = ''
@@ -194,6 +278,7 @@ async function addGrade() {
   }
   newGrade.value = { lrn: '', subject: '', section: '', term: 'term 1', grade: '', teacher_email: '' }
   await fetchGrades()
+  if (activeTab.value === 'summary') fetchSummaryGrades()
 }
 
 // --- STUDENT TRANSFER ---
@@ -217,7 +302,7 @@ async function transferStudent(student) {
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-5">
       <div>
         <h1 class="text-3xl font-bold text-slate-800">Admin Control Center</h1>
-        <p class="text-sm text-slate-500">Overview of teachers, advisers, student rosters, and system grades</p>
+        <p class="text-sm text-slate-500">Overview of teachers, advisers, student rosters, grades registry, and term matrix</p>
       </div>
       <button 
         @click="loadAllData" 
@@ -235,20 +320,31 @@ async function transferStudent(student) {
     </div>
 
     <!-- Tab Navigation -->
-    <div class="flex border-b border-slate-200 space-x-8 overflow-x-auto">
+    <div class="flex border-b border-slate-200 space-x-6 sm:space-x-8 overflow-x-auto">
       <button @click="activeTab = 'teachers'" :class="activeTab === 'teachers' ? 'border-blue-600 text-blue-600 font-semibold' : 'border-transparent text-slate-500 hover:text-slate-700'" class="py-3 px-1 border-b-2 text-sm transition-colors flex items-center gap-2 whitespace-nowrap">
         <span>Teachers & Assignments</span>
         <span class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-xs font-mono">{{ teachers.length }}</span>
       </button>
+      
       <button @click="activeTab = 'advisers'" :class="activeTab === 'advisers' ? 'border-blue-600 text-blue-600 font-semibold' : 'border-transparent text-slate-500 hover:text-slate-700'" class="py-3 px-1 border-b-2 text-sm transition-colors flex items-center gap-2 whitespace-nowrap">
         <span>Advisers & Sections</span>
       </button>
+      
       <button @click="activeTab = 'students'" :class="activeTab === 'students' ? 'border-blue-600 text-blue-600 font-semibold' : 'border-transparent text-slate-500 hover:text-slate-700'" class="py-3 px-1 border-b-2 text-sm transition-colors flex items-center gap-2 whitespace-nowrap">
         <span>Students Roster</span>
         <span class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-xs font-mono">{{ students.length }}</span>
       </button>
+      
       <button @click="activeTab = 'grades'; fetchGrades()" :class="activeTab === 'grades' ? 'border-blue-600 text-blue-600 font-semibold' : 'border-transparent text-slate-500 hover:text-slate-700'" class="py-3 px-1 border-b-2 text-sm transition-colors flex items-center gap-2 whitespace-nowrap">
         <span>Grades Registry</span>
+      </button>
+
+      <!-- NEW TAB: TERM SUMMARY MATRIX -->
+      <button @click="activeTab = 'summary'; fetchSummaryGrades()" :class="activeTab === 'summary' ? 'border-emerald-600 text-emerald-600 font-semibold' : 'border-transparent text-slate-500 hover:text-slate-700'" class="py-3 px-1 border-b-2 text-sm transition-colors flex items-center gap-2 whitespace-nowrap">
+        <span class="flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          Term Summary Matrix
+        </span>
       </button>
     </div>
 
@@ -458,5 +554,73 @@ async function transferStudent(student) {
         </table>
       </div>
     </div>
+
+    <!-- TAB 5: TERM SUMMARY MATRIX (NEW) -->
+    <div v-if="activeTab === 'summary'" class="space-y-4">
+      <!-- Section & Term Selector Controls -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between bg-white p-4 rounded-lg border gap-4">
+        <div class="flex items-center gap-3">
+          <label class="text-xs font-semibold uppercase text-slate-600">Select Section:</label>
+          <select v-model="selectedSummarySection" class="p-2 border rounded-md text-sm font-semibold text-slate-800 bg-slate-50">
+            <option v-for="sec in uniqueSections" :key="sec" :value="sec">{{ sec }}</option>
+          </select>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-semibold uppercase text-slate-600 mr-2">Term:</span>
+          <div class="flex bg-slate-100 p-1 rounded-lg">
+            <button 
+              v-for="term in terms" :key="term"
+              @click="selectedSummaryTerm = term"
+              :class="['px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-colors', 
+                      selectedSummaryTerm === term ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-600 hover:text-slate-800']"
+            >
+              {{ term }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Matrix Table -->
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+        <table class="w-full text-left border-collapse min-w-max">
+          <thead>
+            <tr class="bg-slate-50 text-xs font-semibold uppercase text-slate-600 border-b border-slate-200">
+              <th class="p-4 sticky left-0 bg-slate-50 border-r border-slate-200 z-10 w-64">Student Name</th>
+              <th class="p-4 text-center" v-for="subject in subjectsList" :key="subject">
+                {{ subject }}
+              </th>
+              <th class="p-4 text-center border-l border-slate-200 text-emerald-700 bg-emerald-50/40">Average</th>
+            </tr>
+          </thead>
+          <tbody class="text-sm divide-y divide-slate-100">
+            <tr v-for="s in formattedSummaryStudents" :key="s.id" class="hover:bg-slate-50">
+              <!-- Pinned Student Name Column -->
+              <td class="p-4 font-semibold text-slate-800 sticky left-0 bg-white border-r border-slate-200 z-10">
+                {{ s.name }}
+                <div class="text-[10px] font-mono text-slate-400 font-normal mt-0.5">{{ s.lrn }}</div>
+              </td>
+              
+              <!-- 8 Fixed Subject Columns -->
+              <td class="p-4 text-center text-slate-700 font-medium" v-for="subject in subjectsList" :key="subject">
+                {{ s[subject] || '-' }}
+              </td>
+              
+              <!-- Calculated Average -->
+              <td class="p-4 text-center font-bold text-emerald-600 border-l border-slate-100 bg-emerald-50/20">
+                {{ s.average }}
+              </td>
+            </tr>
+            
+            <tr v-if="formattedSummaryStudents.length === 0">
+              <td :colspan="subjectsList.length + 2" class="p-8 text-center text-slate-500 text-sm">
+                No students or grades recorded for section <span class="font-bold">{{ selectedSummarySection }}</span> in <span class="capitalize">{{ selectedSummaryTerm }}</span>.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
   </div>
 </template>

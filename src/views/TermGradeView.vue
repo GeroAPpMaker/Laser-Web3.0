@@ -12,6 +12,18 @@ const mySection = ref(null)
 const selectedTerm = ref('Term 1')
 const rawStudentsData = ref([])
 
+// Standard 8 Core Subjects (Adjust exact string names here to match your Database grade entries)
+const subjectsList = ref([
+  'Filipino',
+  'English',
+  'Mathematics',
+  'Science',
+  'AP',
+  'ValuesEd',
+  'TLE',
+  'MAPEH'
+])
+
 onMounted(async () => {
   await loadAdviserData()
 })
@@ -24,7 +36,7 @@ async function loadAdviserData() {
     if (authError || !user) throw new Error('Not authenticated.')
     currentUserEmail.value = user.email
 
-    // 1. Get assigned section (using maybeSingle to prevent crash if empty)
+    // 1. Get assigned section
     const { data: sectionData, error: sectionError } = await supabase
       .from('adviser_sections')
       .select('section')
@@ -49,12 +61,12 @@ async function loadAdviserData() {
       return
     }
 
-    // 3. Fetch grades for these students (matches on LRN or ID)
+    // 3. Fetch grades for these students
     const studentLrns = students.map(s => s.lrn)
     const { data: grades, error: gradeError } = await supabase
       .from('grades')
       .select('*')
-      .in('lrn', studentLrns) // Adjust column to 'student_id' if your grades table uses student_id
+      .in('lrn', studentLrns)
 
     if (gradeError) throw gradeError
 
@@ -72,18 +84,7 @@ async function loadAdviserData() {
   }
 }
 
-// Extract unique subjects for table headers based on the current term
-const dynamicSubjects = computed(() => {
-  const subjects = new Set()
-  rawStudentsData.value.forEach(student => {
-    student.grades.forEach(g => {
-      if (g.term === selectedTerm.value) subjects.add(g.subject)
-    })
-  })
-  return Array.from(subjects).sort()
-})
-
-// Pivot data to map subjects as columns per student
+// Map subject grades to columns per student
 const formattedStudents = computed(() => {
   return rawStudentsData.value.map(student => {
     const termGrades = student.grades.filter(g => g.term === selectedTerm.value)
@@ -93,7 +94,7 @@ const formattedStudents = computed(() => {
 
     termGrades.forEach(g => {
       subjectGrades[g.subject] = g.grade
-      if (g.grade) {
+      if (g.grade !== null && g.grade !== undefined && g.grade !== '') {
         total += Number(g.grade)
         count++
       }
@@ -119,7 +120,7 @@ function goBack() {
 <template>
   <div class="max-w-7xl mx-auto p-6 space-y-6">
     <!-- Header -->
-    <div class="flex items-center justify-between border-b pb-5">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b pb-5 gap-4">
       <div>
         <div class="flex items-center space-x-4">
           <button @click="goBack" class="text-slate-500 hover:text-slate-800 text-sm font-medium">&larr; Back</button>
@@ -131,7 +132,7 @@ function goBack() {
       </div>
       
       <!-- Term Selector -->
-      <div class="flex bg-slate-100 p-1 rounded-lg">
+      <div class="flex bg-slate-100 p-1 rounded-lg self-start sm:self-auto">
         <button v-for="term in ['Term 1', 'Term 2', 'Term 3']" :key="term"
           @click="selectedTerm = term"
           :class="['px-4 py-2 rounded-md text-sm font-medium transition-colors', 
@@ -153,7 +154,7 @@ function goBack() {
         <thead>
           <tr class="bg-slate-50 text-xs font-semibold uppercase text-slate-600 border-b border-slate-200">
             <th class="p-4 sticky left-0 bg-slate-50 border-r border-slate-200 z-10 w-64">Student Name</th>
-            <th class="p-4 text-center" v-for="subject in dynamicSubjects" :key="subject">
+            <th class="p-4 text-center" v-for="subject in subjectsList" :key="subject">
               {{ subject }}
             </th>
             <th class="p-4 text-center border-l border-slate-200 text-blue-700">Average</th>
@@ -167,8 +168,8 @@ function goBack() {
               <div class="text-[10px] font-mono text-slate-400 font-normal mt-0.5">{{ s.lrn }}</div>
             </td>
             
-            <!-- Dynamic Subject Grades -->
-            <td class="p-4 text-center text-slate-700 font-medium" v-for="subject in dynamicSubjects" :key="subject">
+            <!-- 8 Fixed Subject Columns -->
+            <td class="p-4 text-center text-slate-700 font-medium" v-for="subject in subjectsList" :key="subject">
               {{ s[subject] || '-' }}
             </td>
             
@@ -179,8 +180,8 @@ function goBack() {
           </tr>
           
           <tr v-if="formattedStudents.length === 0">
-            <td :colspan="dynamicSubjects.length + 2" class="p-8 text-center text-slate-500 text-sm">
-              No grades recorded for {{ selectedTerm }}.
+            <td :colspan="subjectsList.length + 2" class="p-8 text-center text-slate-500 text-sm">
+              No students found in {{ mySection }}.
             </td>
           </tr>
         </tbody>

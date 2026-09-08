@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { supabase } from '../supabase.js'
+import { supabase } from '../supabase.js' // Adjust path if using lib/supabase.js
 
 const loading = ref(true)
 const errorMessage = ref('')
@@ -78,23 +78,6 @@ async function deleteStudent(id, name) {
   else fetchStudents()
 }
 
-async function transferStudent(student) {
-  const newSection = prompt(`Transfer ${student.name} to which section?`, '')
-  if (newSection !== null && newSection.trim() !== '' && newSection.trim() !== mySection.value) {
-    const { error } = await supabase
-      .from('students')
-      .update({ section: newSection.trim() })
-      .eq('id', student.id)
-      
-    if (error) {
-      errorMessage.value = `Transfer failed: ${error.message}`
-    } else {
-      alert(`${student.name} transferred to ${newSection.trim()}`)
-      fetchStudents() // Will remove them from the current view
-    }
-  }
-}
-
 // --- Inline Edit Methods ---
 function startEdit(student) {
   editingId.value = student.id
@@ -128,7 +111,7 @@ async function saveEdit() {
 
 <template>
   <div class="max-w-6xl mx-auto p-6 space-y-6">
-    <!-- Header with Navigation Button -->
+    <!-- Header with Navigation Buttons -->
     <div class="border-b pb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <h1 class="text-3xl font-bold text-slate-800">My Advisory Section</h1>
@@ -137,12 +120,22 @@ async function saveEdit() {
         </p>
       </div>
 
-      <router-link 
-        to="/teacher" 
-        class="inline-flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors shadow-sm self-start sm:self-auto"
-      >
-        TEACHER DASHBOARD (enter grades here) &rarr;
-      </router-link>
+      <!-- Navigation Action Buttons -->
+      <div class="flex flex-col sm:flex-row gap-3 self-start sm:self-auto">
+        <router-link 
+          to="/term-grade" 
+          class="inline-flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors shadow-sm"
+        >
+          View Term Grades Summary &rarr;
+        </router-link>
+        
+        <router-link 
+          to="/teacher" 
+          class="inline-flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors shadow-sm"
+        >
+          TEACHER DASHBOARD (enter grades here) &rarr;
+        </router-link>
+      </div>
     </div>
 
     <div v-if="loading" class="text-slate-500">Loading advisory data...</div>
@@ -191,7 +184,6 @@ async function saveEdit() {
               <td class="p-3 text-xs">{{ s.birthday }}</td>
               <td class="p-3 text-right space-x-3">
                 <button @click="startEdit(s)" class="text-emerald-600 text-xs hover:underline font-medium">Edit</button>
-                <!-- <button @click="transferStudent(s)" class="text-blue-600 text-xs hover:underline font-medium">Transfer</button> -->
                 <button @click="deleteStudent(s.id, s.name)" class="text-red-600 text-xs hover:underline font-medium">Delete</button>
               </td>
             </template>

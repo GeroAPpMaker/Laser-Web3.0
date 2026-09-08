@@ -25,7 +25,7 @@ const terms = ['term 1', 'term 2', 'term 3']
 // New Record States (for inline Add forms)
 const newTeacher = ref({ name: '', email: '', role: 'subject_teacher' })
 const newAssignment = ref({ teacher_email: '', section: '', subject: '' })
-const newAdviserSection = ref({ teacher_email: '', section: '' })
+const newAdviserSection = ref({ teacher_email: '', section: '', school_year: '2026-2027' })
 const newStudent = ref({ lrn: '', name: '', sex: 'MALE', section: '', birthday: '' })
 const newGrade = ref({ lrn: '', subject: '', section: '', term: 'term 1', grade: '', teacher_email: '' })
 
@@ -77,7 +77,7 @@ async function loadAllData() {
       fetchGrades()
     ])
   } catch (err) {
-    errorMessage.value = 'Failed to load admin data. Check Supabase connection or permissions.'
+    errorMessage.value = `Failed to load admin data: ${err.message || err}`
   } finally {
     loading.value = false
   }
@@ -89,21 +89,25 @@ async function fetchTeachers() {
   if (error) throw error
   teachers.value = data || []
 }
+
 async function fetchAssignments() {
   const { data, error } = await supabase.from('teacher_subject_assignments').select('*')
   if (error) throw error
   assignments.value = data || []
 }
+
 async function fetchAdviserSections() {
   const { data, error } = await supabase.from('adviser_sections').select('*')
   if (error) throw error
   adviserSections.value = data || []
 }
+
 async function fetchStudents() {
   const { data, error } = await supabase.from('students').select('*').order('section').order('name')
   if (error) throw error
   students.value = data || []
 }
+
 async function fetchGrades() {
   let query = supabase.from('grades').select('*').order('created_at', { ascending: false })
   if (selectedGradeTerm.value) query = query.eq('term', selectedGradeTerm.value)
@@ -122,54 +126,87 @@ watch([selectedGradeSection, selectedGradeTerm, selectedGradeSubject], () => {
 // --- GENERIC CRUD METHODS ---
 async function deleteRecord(table, id, fetchCallback) {
   if (!confirm(`Are you sure you want to delete this record from ${table}?`)) return
+  errorMessage.value = ''
   const { error } = await supabase.from(table).delete().eq('id', id)
-  if (error) errorMessage.value = `Delete failed: ${error.message}`
-  else await fetchCallback()
+  if (error) {
+    errorMessage.value = `Delete failed: ${error.message}`
+  } else {
+    await fetchCallback()
+  }
 }
 
-// --- SPECIFIC ADD METHODS ---
+// --- SPECIFIC ADD METHODS WITH ERROR HANDLING ---
 async function addTeacher() {
   if (!newTeacher.value.name || !newTeacher.value.email) return
-  await supabase.from('teachers').insert([newTeacher.value])
+  errorMessage.value = ''
+  const { error } = await supabase.from('teachers').insert([newTeacher.value])
+  if (error) {
+    errorMessage.value = `Failed to add teacher: ${error.message}`
+    return
+  }
   newTeacher.value = { name: '', email: '', role: 'subject_teacher' }
-  fetchTeachers()
+  await fetchTeachers()
 }
 
 async function addAssignment() {
   if (!newAssignment.value.teacher_email || !newAssignment.value.section) return
-  await supabase.from('teacher_subject_assignments').insert([newAssignment.value])
+  errorMessage.value = ''
+  const { error } = await supabase.from('teacher_subject_assignments').insert([newAssignment.value])
+  if (error) {
+    errorMessage.value = `Failed to assign subject: ${error.message}`
+    return
+  }
   newAssignment.value = { teacher_email: '', section: '', subject: '' }
-  fetchAssignments()
+  await fetchAssignments()
 }
 
 async function addAdviserSection() {
-  if (!newAdviserSection.value.teacher_email || !newAdviserSection.value.section) return
-  await supabase.from('adviser_sections').insert([newAdviserSection.value])
-  newAdviserSection.value = { teacher_email: '', section: '' }
-  fetchAdviserSections()
+  if (!newAdviserSection.value.teacher_email || !newAdviserSection.value.section || !newAdviserSection.value.school_year) return
+  errorMessage.value = ''
+  const { error } = await supabase.from('adviser_sections').insert([newAdviserSection.value])
+  if (error) {
+    errorMessage.value = `Failed to add adviser mapping: ${error.message}`
+    return
+  }
+  newAdviserSection.value = { teacher_email: '', section: '', school_year: '2026-2027' }
+  await fetchAdviserSections()
 }
 
 async function addStudent() {
   if (!newStudent.value.lrn || !newStudent.value.name) return
-  await supabase.from('students').insert([newStudent.value])
+  errorMessage.value = ''
+  const { error } = await supabase.from('students').insert([newStudent.value])
+  if (error) {
+    errorMessage.value = `Failed to add student: ${error.message}`
+    return
+  }
   newStudent.value = { lrn: '', name: '', sex: 'MALE', section: '', birthday: '' }
-  fetchStudents()
+  await fetchStudents()
 }
 
 async function addGrade() {
   if (!newGrade.value.lrn || !newGrade.value.grade) return
-  await supabase.from('grades').insert([newGrade.value])
+  errorMessage.value = ''
+  const { error } = await supabase.from('grades').insert([newGrade.value])
+  if (error) {
+    errorMessage.value = `Failed to add grade: ${error.message}`
+    return
+  }
   newGrade.value = { lrn: '', subject: '', section: '', term: 'term 1', grade: '', teacher_email: '' }
-  fetchGrades()
+  await fetchGrades()
 }
 
 // --- STUDENT TRANSFER ---
 async function transferStudent(student) {
   const newSection = prompt(`Enter new section for ${student.name} (Current: ${student.section}):`, student.section)
   if (newSection !== null && newSection.trim() !== '' && newSection !== student.section) {
+    errorMessage.value = ''
     const { error } = await supabase.from('students').update({ section: newSection.trim() }).eq('id', student.id)
-    if (error) errorMessage.value = `Transfer failed: ${error.message}`
-    else fetchStudents()
+    if (error) {
+      errorMessage.value = `Transfer failed: ${error.message}`
+    } else {
+      await fetchStudents()
+    }
   }
 }
 </script>
@@ -192,8 +229,9 @@ async function transferStudent(student) {
     </div>
 
     <!-- Error Alert -->
-    <div v-if="errorMessage" class="p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-      {{ errorMessage }}
+    <div v-if="errorMessage" class="p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm flex items-center justify-between">
+      <span>{{ errorMessage }}</span>
+      <button @click="errorMessage = ''" class="text-red-500 hover:text-red-700 font-bold ml-4">&times;</button>
     </div>
 
     <!-- Tab Navigation -->
@@ -216,7 +254,6 @@ async function transferStudent(student) {
 
     <!-- TAB 1: TEACHERS & ASSIGNMENTS -->
     <div v-if="activeTab === 'teachers'" class="space-y-8">
-      <!-- Teachers Table -->
       <div>
         <div class="flex justify-between items-center mb-4">
           <input v-model="searchTeacher" type="text" placeholder="Search teacher..." class="w-80 p-2 border border-slate-300 rounded-md text-sm" />
@@ -280,7 +317,7 @@ async function transferStudent(student) {
       </div>
     </div>
 
-    <!-- TAB 2: ADVISERS (NEW) -->
+    <!-- TAB 2: ADVISERS -->
     <div v-if="activeTab === 'advisers'" class="space-y-4">
       <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <table class="w-full text-left border-collapse">
@@ -288,20 +325,23 @@ async function transferStudent(student) {
             <tr class="bg-slate-50 text-xs font-semibold uppercase text-slate-600">
               <th class="p-4">Teacher Email</th>
               <th class="p-4">Section Handled</th>
+              <th class="p-4">School Year</th>
               <th class="p-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-200 text-sm">
             <!-- Add Row -->
             <tr class="bg-blue-50/50">
-              <td class="p-2"><input v-model="newAdviserSection.teacher_email" placeholder="Email" class="w-full p-2 border rounded text-xs" /></td>
+              <td class="p-2"><input v-model="newAdviserSection.teacher_email" placeholder="Teacher Email" class="w-full p-2 border rounded text-xs" /></td>
               <td class="p-2"><input v-model="newAdviserSection.section" placeholder="Section" class="w-full p-2 border rounded text-xs" /></td>
+              <td class="p-2"><input v-model="newAdviserSection.school_year" placeholder="e.g. 2026-2027" class="w-full p-2 border rounded text-xs" /></td>
               <td class="p-2 text-right"><button @click="addAdviserSection" class="bg-blue-600 text-white px-3 py-1.5 rounded text-xs hover:bg-blue-700">Add Adviser Mapping</button></td>
             </tr>
             <!-- Data -->
             <tr v-for="adv in adviserSections" :key="adv.id" class="hover:bg-slate-50">
               <td class="p-4 font-mono text-slate-600 text-xs">{{ adv.teacher_email }}</td>
               <td class="p-4 font-semibold">{{ adv.section }}</td>
+              <td class="p-4 text-xs text-slate-500">{{ adv.school_year || 'N/A' }}</td>
               <td class="p-4 text-right">
                 <button @click="deleteRecord('adviser_sections', adv.id, fetchAdviserSections)" class="text-red-600 text-xs hover:underline">Delete</button>
               </td>
@@ -336,8 +376,8 @@ async function transferStudent(student) {
             </tr>
           </thead>
           <tbody class="text-sm">
-             <!-- Add Form -->
-             <tr class="bg-blue-50/50">
+            <!-- Add Form -->
+            <tr class="bg-blue-50/50">
               <td class="p-2"><input v-model="newStudent.lrn" placeholder="LRN" class="w-full p-1 border rounded text-xs" /></td>
               <td class="p-2"><input v-model="newStudent.name" placeholder="Full Name" class="w-full p-1 border rounded text-xs" /></td>
               <td class="p-2">
@@ -369,7 +409,6 @@ async function transferStudent(student) {
     <!-- TAB 4: GRADES REGISTRY -->
     <div v-if="activeTab === 'grades'" class="space-y-4">
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-4 rounded-lg border">
-        <!-- Filters (unchanged from original) -->
         <div><label class="block text-xs font-semibold mb-1">Term</label><select v-model="selectedGradeTerm" class="w-full p-2 border rounded-md text-sm"><option v-for="t in terms" :key="t" :value="t">{{ t }}</option></select></div>
         <div><label class="block text-xs font-semibold mb-1">Section</label><select v-model="selectedGradeSection" class="w-full p-2 border rounded-md text-sm"><option value="ALL">All Sections</option><option v-for="sec in uniqueSections" :key="sec" :value="sec">{{ sec }}</option></select></div>
         <div><label class="block text-xs font-semibold mb-1">Subject</label><select v-model="selectedGradeSubject" class="w-full p-2 border rounded-md text-sm"><option value="ALL">All Subjects</option><option v-for="sub in uniqueSubjects" :key="sub" :value="sub">{{ sub }}</option></select></div>
@@ -390,7 +429,7 @@ async function transferStudent(student) {
           </thead>
           <tbody class="text-sm">
             <!-- Add Row -->
-             <tr class="bg-blue-50/50">
+            <tr class="bg-blue-50/50">
               <td class="p-2"><input v-model="newGrade.lrn" placeholder="LRN" class="w-full p-1 border rounded text-xs" /></td>
               <td class="p-2"><input v-model="newGrade.subject" placeholder="Subject" class="w-full p-1 border rounded text-xs" /></td>
               <td class="p-2"><input v-model="newGrade.section" placeholder="Section" class="w-full p-1 border rounded text-xs" /></td>

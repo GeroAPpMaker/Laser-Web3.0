@@ -21,8 +21,8 @@ const subjectsList = ref([
   'English',
   'Mathematics',
   'Science',
-  'Araling Panlipunan',
-  'EsP',
+  'AP',
+  'ValuesEd',
   'TLE',
   'MAPEH'
 ])

@@ -46,6 +46,13 @@ const router = createRouter({
       component: () => import('../views/TeacherDashboard.vue'),
       meta: { requiresAuth: true, role: 'teacher' },
     },
+    // ADDED: Adviser Dashboard Route
+    {
+      path: '/adviser',
+      name: 'adviser-dashboard',
+      component: () => import('../views/AdviserDashboard.vue'),
+      meta: { requiresAuth: true, role: 'teacher' }, // Assumes advisers share the 'teacher' role in auth
+    },
     {
       path: '/student',
       name: 'student-dashboard',
@@ -57,7 +64,6 @@ const router = createRouter({
       name: 'department',
       component: () => import('../views/Department.vue'),
     },
-    // ADDED: Reusable Single View Route for Offices
     {
       path: '/office/:name',
       name: 'office',
@@ -87,7 +93,15 @@ router.beforeEach(async (to) => {
     const role = await resolveSessionRole(session)
     const home = dashboardRouteForRole(role)
     if (!home) return { name: 'login' }
-    if (to.meta.role && to.meta.role !== role) return home
+    
+    // Check if the route restricts access by role
+    if (to.meta.role && to.meta.role !== role) {
+      // Allow users with 'admin' or 'teacher' role to access adviser dashboard
+      if (to.name === 'adviser-dashboard' && (role === 'teacher' || role === 'admin')) {
+        return true
+      }
+      return home
+    }
   }
 })
 

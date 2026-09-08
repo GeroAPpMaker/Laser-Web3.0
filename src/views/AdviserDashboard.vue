@@ -191,7 +191,7 @@ async function saveEdit() {
               <td class="p-3 text-xs">{{ s.birthday }}</td>
               <td class="p-3 text-right space-x-3">
                 <button @click="startEdit(s)" class="text-emerald-600 text-xs hover:underline font-medium">Edit</button>
-                <button @click="transferStudent(s)" class="text-blue-600 text-xs hover:underline font-medium">Transfer</button>
+                <!-- <button @click="transferStudent(s)" class="text-blue-600 text-xs hover:underline font-medium">Transfer</button> -->
                 <button @click="deleteStudent(s.id, s.name)" class="text-red-600 text-xs hover:underline font-medium">Delete</button>
               </td>
             </template>

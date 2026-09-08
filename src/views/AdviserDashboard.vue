@@ -128,11 +128,21 @@ async function saveEdit() {
 
 <template>
   <div class="max-w-6xl mx-auto p-6 space-y-6">
-    <div class="border-b pb-5">
-      <h1 class="text-3xl font-bold text-slate-800">My Advisory Section</h1>
-      <p v-if="mySection" class="text-sm text-slate-600 mt-1">
-        Currently managing <span class="font-bold text-blue-600">{{ mySection }}</span> | {{ students.length }} Students
-      </p>
+    <!-- Header with Navigation Button -->
+    <div class="border-b pb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div>
+        <h1 class="text-3xl font-bold text-slate-800">My Advisory Section</h1>
+        <p v-if="mySection" class="text-sm text-slate-600 mt-1">
+          Currently managing <span class="font-bold text-blue-600">{{ mySection }}</span> | {{ students.length }} Students
+        </p>
+      </div>
+
+      <router-link 
+        to="/teacher" 
+        class="inline-flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors shadow-sm self-start sm:self-auto"
+      >
+        TEACHER DASHBOARD (enter grades here) &rarr;
+      </router-link>
     </div>
 
     <div v-if="loading" class="text-slate-500">Loading advisory data...</div>

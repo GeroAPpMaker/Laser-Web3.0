@@ -9,7 +9,7 @@ const mySection = ref(null)
 const students = ref([])
 
 // Form states
-const newStudent = ref({ lrn: '', name: '', sex: 'MALE', birthday: '' })
+const newStudent = ref({ lrn: '', name: '', sex: 'M', birthday: '' })
 const editingId = ref(null)
 const editForm = ref({})
 
@@ -66,7 +66,7 @@ async function addStudent() {
   if (error) {
     errorMessage.value = `Add failed: ${error.message}`
   } else {
-    newStudent.value = { lrn: '', name: '', sex: 'MALE', birthday: '' }
+    newStudent.value = { lrn: '', name: '', sex: 'M', birthday: '' }
     fetchStudents()
   }
 }
@@ -163,8 +163,8 @@ async function saveEdit() {
             <td class="p-2"><input v-model="newStudent.name" placeholder="Full Name" class="w-full p-1.5 border rounded text-xs" /></td>
             <td class="p-2">
               <select v-model="newStudent.sex" class="w-full p-1.5 border rounded text-xs">
-                <option>MALE</option>
-                <option>FEMALE</option>
+                <option>M</option>
+                <option>F</option>
               </select>
             </td>
             <td class="p-2"><input v-model="newStudent.birthday" type="date" class="w-full p-1.5 border rounded text-xs" /></td>
@@ -194,7 +194,7 @@ async function saveEdit() {
               <td class="p-2"><input v-model="editForm.name" class="w-full p-1 border rounded text-xs border-emerald-400" /></td>
               <td class="p-2">
                 <select v-model="editForm.sex" class="w-full p-1 border rounded text-xs border-emerald-400">
-                  <option>MALE</option><option>FEMALE</option>
+                  <option>M</option><option>F</option>
                 </select>
               </td>
               <td class="p-2"><input v-model="editForm.birthday" type="date" class="w-full p-1 border rounded text-xs border-emerald-400" /></td>

@@ -5,14 +5,13 @@ import { supabase } from '../supabase.js'
 // State
 const loading = ref(false)
 const saving = ref(false)
-const isSyncing = ref(false)
 const statusMessage = ref({ type: '', text: '' })
 let messageTimer = null
 
 const teacherEmail = ref('')
 const assignments = ref([])
 const students = ref([])
-const grades = ref({}) // Key: Lrv, Value: numeric grade
+const grades = ref({}) // Key: Lrn, Value: numeric grade
 
 // Selection Filters
 const selectedAssignment = ref(null)
@@ -20,9 +19,6 @@ const selectedTerm = ref('term 1')
 const schoolYear = ref('2026-2027') 
 
 const terms = ['term 1', 'term 2', 'term 3']
-
-// Explicitly includes MA and PEH to match the database and Google Sheets matrix
-const ALL_SUBJECTS = ['Filipino', 'English', 'Mathematics', 'Science', 'AP', 'ValuesEd', 'TLE', 'MA', 'PEH']
 
 onMounted(async () => {
   const { data: { user } } = await supabase.auth.getUser()
@@ -156,76 +152,6 @@ async function saveGrades() {
   saving.value = false
 }
 
-async function syncGradesToGoogleSheets() {
-  if (!selectedAssignment.value) return
-  
-  const GOOGLE_SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL
-  if (!GOOGLE_SCRIPT_URL) {
-    showMessage('error', 'VITE_GOOGLE_SCRIPT_URL is missing.')
-    return
-  }
-
-  isSyncing.value = true
-  showMessage('info', 'Building section matrix and syncing to Google Sheets...')
-
-  try {
-    const targetSection = selectedAssignment.value.section
-
-    const { data: sectionStudents } = await supabase
-      .from('students')
-      .select('lrn, name')
-      .eq('section', targetSection)
-      .order('name')
-
-    const { data: allSectionGrades } = await supabase
-      .from('grades')
-      .select('lrn, subject, grade')
-      .eq('section', targetSection)
-      .eq('term', selectedTerm.value)
-      .eq('school_year', schoolYear.value)
-
-    const formattedGrades = sectionStudents.map(student => {
-      const studentGrades = { lrn: student.lrn, name: student.name }
-      let total = 0
-      let count = 0
-
-      ALL_SUBJECTS.forEach(subj => {
-        const match = allSectionGrades?.find(g => g.lrn === student.lrn && g.subject === subj)
-        if (match && match.grade !== null) {
-          studentGrades[subj] = match.grade
-          total += Number(match.grade)
-          count++
-        } else {
-          studentGrades[subj] = ''
-        }
-      })
-
-      studentGrades.average = count > 0 ? (total / count).toFixed(2) : ''
-      return studentGrades
-    })
-
-    const payload = {
-      action: 'sync_grades',
-      section: targetSection,
-      term: selectedTerm.value,
-      grades: formattedGrades
-    }
-
-    await fetch(GOOGLE_SCRIPT_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
-    })
-
-    showMessage('success', `Grades synced to ${selectedTerm.value} tab in Google Sheets!`)
-  } catch (err) {
-    showMessage('error', `Sync failed: ${err.message}`)
-  } finally {
-    isSyncing.value = false
-  }
-}
-
 function showMessage(type, text) {
   statusMessage.value = { type, text }
   if (messageTimer) clearTimeout(messageTimer)
@@ -256,7 +182,7 @@ function showMessage(type, text) {
         <select 
           id="assignment-select"
           v-model="selectedAssignment" 
-          :disabled="loading || saving || isSyncing"
+          :disabled="loading || saving"
           class="w-full border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border disabled:bg-gray-100"
         >
           <option v-if="assignments.length === 0" disabled value="null">No assignments found</option>
@@ -271,7 +197,7 @@ function showMessage(type, text) {
         <select 
           id="term-select"
           v-model="selectedTerm" 
-          :disabled="loading || saving || isSyncing"
+          :disabled="loading || saving"
           class="w-full border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border capitalize disabled:bg-gray-100"
         >
           <option v-for="t in terms" :key="t" :value="t" class="capitalize">{{ t }}</option>
@@ -320,7 +246,7 @@ function showMessage(type, text) {
               <input 
                 type="number" 
                 v-model.number="grades[student.lrn]" 
-                :disabled="saving || isSyncing"
+                :disabled="saving"
                 min="0" 
                 max="100" 
                 step="0.01"
@@ -334,9 +260,10 @@ function showMessage(type, text) {
       </table>
     </div>
 
+    <div>
       <button 
         @click="saveGrades" 
-        :disabled="saving || isSyncing || loading || students.length === 0"
+        :disabled="saving || loading || students.length === 0"
         class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-md shadow transition-all disabled:opacity-50 flex items-center gap-2"
       >
         <span v-if="saving">

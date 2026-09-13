@@ -1,16 +1,18 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { supabase } from '../supabase.js'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
 const loading = ref(true)
+const isRefreshing = ref(false)
 const errorMessage = ref('')
 const currentUserEmail = ref('')
 const mySection = ref(null)
 
 const selectedTerm = ref('Term 1')
 const rawStudentsData = ref([])
+let realtimeChannel = null
 
 // Transmission States
 const isReviewing = ref(false)
@@ -39,11 +41,39 @@ const subjectsList = ref([
 
 onMounted(async () => {
   await loadAdviserData()
+  setupRealtimeSubscription()
 })
 
+onUnmounted(() => {
+  if (realtimeChannel) {
+    supabase.removeChannel(realtimeChannel)
+  }
+})
+
+// Listens to the database and triggers a refresh automatically
+function setupRealtimeSubscription() {
+  realtimeChannel = supabase
+    .channel('grades-updates')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'grades' },
+      () => {
+        refreshData()
+      }
+    )
+    .subscribe()
+}
+
+async function refreshData() {
+  isRefreshing.value = true
+  await loadAdviserData()
+  isRefreshing.value = false
+}
+
 async function loadAdviserData() {
-  loading.value = true
+  if (!isRefreshing.value) loading.value = true
   errorMessage.value = ''
+  
   try {
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) throw new Error('Not authenticated.')
@@ -150,7 +180,6 @@ async function transmitGrades() {
   isTransmitting.value = true
   transmissionMessage.value = "Transmitting to Google Sheets..."
 
-  // REPLACE WITH YOUR ACTUAL DEPLOYED APPS SCRIPT URL
   const GOOGLE_SCRIPT_URL = 'YOUR_GOOGLE_SCRIPT_WEB_APP_URL_HERE' 
 
   try {
@@ -158,21 +187,18 @@ async function transmitGrades() {
       section: mySection.value,
       teacherEmail: currentUserEmail.value,
       term: selectedTerm.value,
-      grades: formattedStudents.value // Sends the calculated matrix for this specific term
+      grades: formattedStudents.value 
     }
 
     const response = await fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8', 
-      },
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     })
 
     const result = await response.json()
 
     if (result.status === 'error') throw new Error(result.message)
-    
     transmissionMessage.value = `✅ ${selectedTerm.value} Successfully transmitted!`
     
   } catch (error) {
@@ -191,6 +217,13 @@ async function transmitGrades() {
         <div class="flex items-center space-x-4">
           <button @click="goBack" class="text-slate-500 hover:text-slate-800 text-sm font-medium">&larr; Back</button>
           <h1 class="text-3xl font-bold text-slate-800">Term Grades Summary</h1>
+          
+          <!-- Manual Refresh Button -->
+          <button @click="refreshData" class="text-slate-400 hover:text-blue-600 transition-colors" title="Force Refresh">
+            <svg :class="{'animate-spin text-blue-600': isRefreshing}" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
         </div>
         <p v-if="mySection" class="text-sm text-slate-600 mt-2">
           Advisory Section: <span class="font-bold text-blue-600">{{ mySection }}</span>

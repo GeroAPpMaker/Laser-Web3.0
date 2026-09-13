@@ -122,7 +122,7 @@ async function syncRecordsToSheet() {
   isSyncing.value = true
   syncMessage.value = "Syncing records to Google Sheets..."
   
-  const GOOGLE_SCRIPT_URL = 'YOUR_GOOGLE_SCRIPT_WEB_APP_URL_HERE' 
+  const GOOGLE_SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL;
 
   try {
     const payload = {

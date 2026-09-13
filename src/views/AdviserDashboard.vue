@@ -119,10 +119,15 @@ async function syncRecordsToSheet() {
     return
   }
 
+  const GOOGLE_SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL
+
+  if (!GOOGLE_SCRIPT_URL) {
+    syncMessage.value = "❌ Error: VITE_GOOGLE_SCRIPT_URL is missing from .env file."
+    return
+  }
+
   isSyncing.value = true
   syncMessage.value = "Syncing records to Google Sheets..."
-  
-  const GOOGLE_SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL;
 
   try {
     const payload = {
@@ -131,24 +136,29 @@ async function syncRecordsToSheet() {
       students: students.value
     }
 
+    // text/plain prevents the browser from making a preflight OPTIONS request
     const response = await fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      redirect: 'follow',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      },
       body: JSON.stringify(payload)
     })
 
     const rawText = await response.text()
-    
-    let result;
+
+    let result
     try {
       result = JSON.parse(rawText)
     } catch (e) {
-      console.error("GOOGLE RETURNED THIS INSTEAD OF JSON:", rawText)
-      throw new Error("Google blocked the request. Press F12, go to the Console tab, and look at the red text to see why.")
+      console.error("Google Web App returned raw content:", rawText)
+      throw new Error("Invalid response format from Google. Check Apps Script access settings.")
     }
 
     if (result.status === 'error') throw new Error(result.message)
-    syncMessage.value = `✅ Records successfully synced! (Last synced: ${new Date().toLocaleTimeString()})`
+
+    syncMessage.value = `✅ Records successfully synced! (${new Date().toLocaleTimeString()})`
   } catch (error) {
     syncMessage.value = `❌ Sync failed: ${error.message}`
   } finally {

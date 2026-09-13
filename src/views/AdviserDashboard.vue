@@ -1,289 +1,387 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { supabase } from '../supabase.js'
 
-const loading = ref(true)
-const errorMessage = ref('')
-const currentUserEmail = ref('')
-const mySection = ref(null)
-const students = ref([])
-
-// Split students into Male and Female arrays
-const maleStudents = computed(() => students.value.filter(s => s.sex === 'M'))
-const femaleStudents = computed(() => students.value.filter(s => s.sex === 'F'))
-
-// Form states
-const newStudent = ref({ lrn: '', name: '', sex: 'M', birthday: '' })
-const editingId = ref(null)
-const editForm = ref({})
-
-// Transmission states
+// State
+const loading = ref(false)
+const saving = ref(false)
 const isSyncing = ref(false)
-const syncMessage = ref('')
+const statusMessage = ref({ type: '', text: '' })
+let messageTimer = null
+
+const teacherEmail = ref('')
+const assignments = ref([])
+const students = ref([])
+const grades = ref({}) // Key: Lrv, Value: numeric grade
+
+// Selection Filters
+const selectedAssignment = ref(null)
+const selectedTerm = ref('term 1')
+const schoolYear = ref('2026-2027') 
+
+const terms = ['term 1', 'term 2', 'term 3']
+
+// Explicitly includes MA and PEH to match the database and Google Sheets matrix
+const ALL_SUBJECTS = ['Filipino', 'English', 'Mathematics', 'Science', 'AP', 'ValuesEd', 'TLE', 'MA', 'PEH']
 
 onMounted(async () => {
-  await initializeAdviserData()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (user?.email) {
+    teacherEmail.value = user.email
+    await fetchAssignments()
+  } else {
+    showMessage('error', 'Authentication error. Please log in again.')
+  }
 })
 
-async function initializeAdviserData() {
+onUnmounted(() => {
+  if (messageTimer) clearTimeout(messageTimer)
+})
+
+async function fetchAssignments() {
   loading.value = true
-  errorMessage.value = ''
-  try {
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) throw new Error('Not authenticated. Please log in.')
-    currentUserEmail.value = user.email
-
-    const { data: sectionData, error: sectionError } = await supabase
-      .from('adviser_sections')
-      .select('section')
-      .eq('teacher_email', currentUserEmail.value)
-      .single()
-      
-    if (sectionError) throw new Error('No advisory section assigned to your account.')
-    mySection.value = sectionData.section
-
-    await fetchStudents()
-  } catch (err) {
-    errorMessage.value = err.message
-  } finally {
-    loading.value = false
-  }
-}
-
-async function fetchStudents() {
-  if (!mySection.value) return
   const { data, error } = await supabase
-    .from('students')
+    .from('teacher_subject_assignments')
     .select('*')
-    .eq('section', mySection.value)
-    .order('name')
-  
-  if (error) errorMessage.value = `Failed to load students: ${error.message}`
-  else students.value = data || []
-}
+    .eq('teacher_email', teacherEmail.value)
 
-async function addStudent() {
-  if (!newStudent.value.lrn || !newStudent.value.name) return
-  
-  const payload = { ...newStudent.value, section: mySection.value }
-  const { error } = await supabase.from('students').insert([payload])
-  
   if (error) {
-    errorMessage.value = `Add failed: ${error.message}`
+    showMessage('error', 'Failed to load teacher assignments.')
   } else {
-    newStudent.value = { lrn: '', name: '', sex: 'M', birthday: '' }
-    fetchStudents()
+    assignments.value = data || []
+    if (data?.length) {
+      selectedAssignment.value = data[0]
+    }
   }
+  loading.value = false
 }
 
-async function deleteStudent(id, name) {
-  if (!confirm(`Permanently delete ${name}?`)) return
-  const { error } = await supabase.from('students').delete().eq('id', id)
-  if (error) errorMessage.value = `Delete failed: ${error.message}`
-  else fetchStudents()
-}
+watch([selectedAssignment, selectedTerm], async () => {
+  if (!selectedAssignment.value) return
+  await loadClassData()
+}, { deep: true })
 
-function startEdit(student) {
-  editingId.value = student.id
-  editForm.value = { ...student }
-}
+async function loadClassData() {
+  loading.value = true
+  statusMessage.value = { type: '', text: '' }
+  grades.value = {}
+  students.value = []
 
-function cancelEdit() {
-  editingId.value = null
-  editForm.value = {}
-}
+  const { section: currentSection, subject: currentSubject } = selectedAssignment.value
 
-async function saveEdit() {
-  const { error } = await supabase
+  const { data: studentData, error: studentErr } = await supabase
     .from('students')
-    .update({
-      lrn: editForm.value.lrn,
-      name: editForm.value.name,
-      sex: editForm.value.sex,
-      birthday: editForm.value.birthday
-    })
-    .eq('id', editingId.value)
+    .select('lrn, name')
+    .eq('section', currentSection)
+    .order('name', { ascending: true })
 
-  if (error) {
-    errorMessage.value = `Update failed: ${error.message}`
-  } else {
-    editingId.value = null
-    fetchStudents()
-  }
-}
-
-// Sync Masterlist to Google Sheets (Male/Female Tabs)
-async function syncRecordsToSheet() {
-  if (students.value.length === 0) {
-    syncMessage.value = "No students to sync."
+  if (studentErr) {
+    showMessage('error', 'Failed to load student list.')
+    loading.value = false
     return
   }
 
-  const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz2hsPLhUDIt8rPyiWq1VnzblbdwqGIXvw42okKIhibjnL44zVTiBZOeNHJRSU_xVbb/exec'
+  students.value = studentData || []
 
+  const { data: gradeData, error: gradeErr } = await supabase
+    .from('grades')
+    .select('lrn, grade')
+    .match({
+      section: currentSection,
+      subject: currentSubject,
+      term: selectedTerm.value,
+      school_year: schoolYear.value
+    })
+
+  if (!gradeErr && gradeData) {
+    gradeData.forEach(item => {
+      grades.value[item.lrn] = item.grade
+    })
+  }
+
+  loading.value = false
+}
+
+async function saveGrades() {
+  saving.value = true
+  statusMessage.value = { type: '', text: '' }
+
+  const payload = []
+  let hasValidationError = false
+
+  students.value.forEach(s => {
+    const rawGrade = grades.value[s.lrn]
+    if (rawGrade !== undefined && rawGrade !== null && rawGrade !== '') {
+      const parsedGrade = parseFloat(rawGrade)
+      
+      if (isNaN(parsedGrade) || parsedGrade < 0 || parsedGrade > 100) {
+        hasValidationError = true
+      } else {
+        payload.push({
+          lrn: s.lrn,
+          subject: selectedAssignment.value.subject,
+          term: selectedTerm.value,
+          section: selectedAssignment.value.section,
+          teacher_email: teacherEmail.value,
+          school_year: schoolYear.value,
+          grade: parsedGrade,
+          updated_at: new Date().toISOString()
+        })
+      }
+    }
+  })
+
+  if (hasValidationError) {
+    showMessage('error', 'Invalid input: Grades must be a number between 0 and 100.')
+    saving.value = false
+    return
+  }
+
+  if (payload.length === 0) {
+    showMessage('error', 'No valid grades entered to save.')
+    saving.value = false
+    return
+  }
+
+  const { error } = await supabase
+    .from('grades')
+    .upsert(payload, { onConflict: 'lrn,subject,term,section,school_year' })
+
+  if (error) {
+    showMessage('error', `Failed to save grades: ${error.message}`)
+  } else {
+    showMessage('success', 'Grades saved successfully!')
+  }
+  
+  saving.value = false
+}
+
+async function syncGradesToGoogleSheets() {
+  if (!selectedAssignment.value) return
+  
+  const GOOGLE_SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL
   if (!GOOGLE_SCRIPT_URL) {
-    syncMessage.value = "❌ Error: VITE_GOOGLE_SCRIPT_URL is missing."
+    showMessage('error', 'VITE_GOOGLE_SCRIPT_URL is missing.')
     return
   }
 
   isSyncing.value = true
-  syncMessage.value = "Syncing records to Google Sheets..."
+  showMessage('info', 'Building section matrix and syncing to Google Sheets...')
 
   try {
+    const targetSection = selectedAssignment.value.section
+
+    const { data: sectionStudents } = await supabase
+      .from('students')
+      .select('lrn, name')
+      .eq('section', targetSection)
+      .order('name')
+
+    const { data: allSectionGrades } = await supabase
+      .from('grades')
+      .select('lrn, subject, grade')
+      .eq('section', targetSection)
+      .eq('term', selectedTerm.value)
+      .eq('school_year', schoolYear.value)
+
+    const formattedGrades = sectionStudents.map(student => {
+      const studentGrades = { lrn: student.lrn, name: student.name }
+      let total = 0
+      let count = 0
+
+      ALL_SUBJECTS.forEach(subj => {
+        const match = allSectionGrades?.find(g => g.lrn === student.lrn && g.subject === subj)
+        if (match && match.grade !== null) {
+          studentGrades[subj] = match.grade
+          total += Number(match.grade)
+          count++
+        } else {
+          studentGrades[subj] = ''
+        }
+      })
+
+      studentGrades.average = count > 0 ? (total / count).toFixed(2) : ''
+      return studentGrades
+    })
+
     const payload = {
-      action: 'sync_records',
-      section: mySection.value,
-      students: students.value
+      action: 'sync_grades',
+      section: targetSection,
+      term: selectedTerm.value,
+      grades: formattedGrades
     }
 
     await fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
-      mode: 'no-cors', 
+      mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     })
 
-    syncMessage.value = `✅ Records successfully synced! (${new Date().toLocaleTimeString()})`
-  } catch (error) {
-    syncMessage.value = `❌ Sync failed to send: ${error.message}`
+    showMessage('success', `Grades synced to ${selectedTerm.value} tab in Google Sheets!`)
+  } catch (err) {
+    showMessage('error', `Sync failed: ${err.message}`)
   } finally {
     isSyncing.value = false
   }
 }
+
+function showMessage(type, text) {
+  statusMessage.value = { type, text }
+  if (messageTimer) clearTimeout(messageTimer)
+  
+  if (type === 'success' || type === 'info') {
+    messageTimer = setTimeout(() => {
+      statusMessage.value = { type: '', text: '' }
+    }, 4000)
+  }
+}
+
+// Function to handle Termgrade View navigation or modal
+function viewTermGrade() {
+  // Add your logic here (e.g., router.push('/termgrades') or toggling a modal state)
+  console.log('Termgrade view clicked')
+}
 </script>
 
 <template>
-  <div class="max-w-screen-2xl mx-auto p-6 space-y-6">
-    <div class="border-b pb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+  <div class="max-w-5xl mx-auto p-6 bg-white rounded-xl shadow-md space-y-6">
+    <div class="border-b pb-4 flex justify-between items-center">
       <div>
-        <h1 class="text-3xl font-bold text-slate-800">My Advisory Section</h1>
-        <p v-if="mySection" class="text-sm text-slate-600 mt-1">
-          Currently managing <span class="font-bold text-blue-600">{{ mySection }}</span> | {{ students.length }} Students
-        </p>
+        <h1 class="text-2xl font-bold text-gray-800">Teacher Grade Entry</h1>
+        <p class="text-sm text-gray-500">Logged in as: <span class="font-semibold">{{ teacherEmail || 'Loading...' }}</span></p>
       </div>
-      <div class="flex flex-col sm:flex-row gap-3">
-        <router-link to="/teacher" class="inline-flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors shadow-sm">
-          TEACHER DASHBOARD &rarr;
-        </router-link>
-      </div>
+      <span class="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-semibold">
+        S.Y. {{ schoolYear }}
+      </span>
     </div>
 
-    <!-- Toolbar: Add Student & Sync -->
-    <div v-if="!loading && mySection" class="bg-white p-4 border border-slate-200 rounded-lg shadow-sm flex flex-col lg:flex-row gap-4 items-center justify-between">
-      <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-        <span class="font-bold text-sm text-slate-700 mr-2">Add Student:</span>
-        <input v-model="newStudent.lrn" placeholder="New LRN" class="p-2 border rounded text-xs w-32" />
-        <input v-model="newStudent.name" placeholder="Full Name" class="p-2 border rounded text-xs w-48" />
-        <select v-model="newStudent.sex" class="p-2 border rounded text-xs">
-          <option value="M">M (Male)</option>
-          <option value="F">F (Female)</option>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg">
+      <div>
+        <label for="assignment-select" class="block text-xs font-semibold text-gray-600 uppercase mb-1">Class Assignment</label>
+        <select 
+          id="assignment-select"
+          v-model="selectedAssignment" 
+          :disabled="loading || saving || isSyncing"
+          class="w-full border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border disabled:bg-gray-100"
+        >
+          <option v-if="assignments.length === 0" disabled value="null">No assignments found</option>
+          <option v-for="assign in assignments" :key="assign.id" :value="assign">
+            {{ assign.section }} — {{ assign.subject }}
+          </option>
         </select>
-        <input v-model="newStudent.birthday" type="date" class="p-2 border rounded text-xs w-36" />
-        <button @click="addStudent" class="bg-blue-600 text-white px-4 py-2 rounded text-xs hover:bg-blue-700 font-bold shadow-sm">
-          Add +
-        </button>
       </div>
 
-      <div class="flex items-center gap-3 ml-auto">
-        <span v-if="syncMessage" class="text-xs font-medium text-slate-600">{{ syncMessage }}</span>
-        <button @click="syncRecordsToSheet" :disabled="isSyncing" class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm flex items-center gap-2">
-          Sync to Google Sheets
-        </button>
+      <div>
+        <label for="term-select" class="block text-xs font-semibold text-gray-600 uppercase mb-1">Grading Term</label>
+        <select 
+          id="term-select"
+          v-model="selectedTerm" 
+          :disabled="loading || saving || isSyncing"
+          class="w-full border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border capitalize disabled:bg-gray-100"
+        >
+          <option v-for="t in terms" :key="t" :value="t" class="capitalize">{{ t }}</option>
+        </select>
       </div>
     </div>
 
-    <div v-if="loading" class="text-slate-500">Loading advisory data...</div>
-    <div v-if="errorMessage" class="p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{{ errorMessage }}</div>
-
-    <!-- Side-by-Side Male/Female Tables -->
-    <div v-if="!loading && mySection" class="grid grid-cols-1 xl:grid-cols-2 gap-8 items-start">
-      
-      <!-- MALE TABLE -->
-      <div class="bg-white border border-slate-300 shadow-sm overflow-x-auto">
-        <table class="w-full text-left border-collapse min-w-max">
-          <thead>
-            <tr class="bg-[#002060] text-white text-xs font-bold uppercase tracking-wide">
-              <th class="p-2 w-10 text-center border border-slate-400">#</th>
-              <th class="p-2 border border-slate-400 w-48">MALE</th>
-              <th class="p-2 text-center border border-slate-400 w-28">LRN</th>
-              <th class="p-2 text-center border border-slate-400 w-28">BIRTHDATE</th>
-              <th class="p-2 text-center border border-slate-400 w-32 bg-[#001848]">ACTIONS</th>
-            </tr>
-          </thead>
-          <tbody class="text-sm divide-y divide-slate-200 bg-white">
-            <tr v-for="(s, index) in maleStudents" :key="s.id" class="hover:bg-slate-50 border-b border-slate-200">
-              <td class="p-2 text-center font-bold text-slate-500 border border-slate-300">{{ index + 1 }}</td>
-              
-              <template v-if="editingId !== s.id">
-                <td class="p-2 font-bold text-slate-800 border border-slate-300">{{ s.name }}</td>
-                <td class="p-2 text-center font-mono text-xs text-slate-700 border border-slate-300">{{ s.lrn }}</td>
-                <td class="p-2 text-center text-xs text-slate-700 border border-slate-300">{{ s.birthday || '-' }}</td>
-                <td class="p-2 text-center space-x-2 border border-slate-300">
-                  <button @click="startEdit(s)" class="text-blue-600 text-xs hover:underline font-bold">Edit</button>
-                  <button @click="deleteStudent(s.id, s.name)" class="text-red-600 text-xs hover:underline font-bold">Del</button>
-                </td>
-              </template>
-
-              <template v-else>
-                <td class="p-1 border border-slate-300"><input v-model="editForm.name" class="w-full p-1 border rounded text-xs border-emerald-400" /></td>
-                <td class="p-1 border border-slate-300"><input v-model="editForm.lrn" class="w-full p-1 border rounded text-xs border-emerald-400" /></td>
-                <td class="p-1 border border-slate-300"><input v-model="editForm.birthday" type="date" class="w-full p-1 border rounded text-xs border-emerald-400" /></td>
-                <td class="p-1 text-center space-x-1 border border-slate-300">
-                  <button @click="saveEdit" class="bg-emerald-600 text-white px-2 py-1 rounded text-xs hover:bg-emerald-700">Save</button>
-                  <button @click="cancelEdit" class="bg-slate-200 text-slate-700 px-2 py-1 rounded text-xs hover:bg-slate-300">Cancel</button>
-                </td>
-              </template>
-            </tr>
-            <tr v-if="maleStudents.length === 0">
-              <td colspan="5" class="p-4 text-center text-slate-400 text-xs font-medium border border-slate-300">No Male students recorded.</td>
-            </tr>
-          </tbody>
-        </table>
+    <Transition name="fade">
+      <div 
+        v-if="statusMessage.text" 
+        :class="{
+          'bg-red-50 text-red-700 border-red-200': statusMessage.type === 'error',
+          'bg-green-50 text-green-700 border-green-200': statusMessage.type === 'success',
+          'bg-blue-50 text-blue-700 border-blue-200': statusMessage.type === 'info'
+        }"
+        class="p-3 rounded-md border text-sm font-medium transition-all"
+        role="alert"
+      >
+        {{ statusMessage.text }}
       </div>
+    </Transition>
 
-      <!-- FEMALE TABLE -->
-      <div class="bg-white border border-slate-300 shadow-sm overflow-x-auto">
-        <table class="w-full text-left border-collapse min-w-max">
-          <thead>
-            <tr class="bg-[#002060] text-white text-xs font-bold uppercase tracking-wide">
-              <th class="p-2 w-10 text-center border border-slate-400">#</th>
-              <th class="p-2 border border-slate-400 w-48">FEMALE</th>
-              <th class="p-2 text-center border border-slate-400 w-28">LRN</th>
-              <th class="p-2 text-center border border-slate-400 w-28">BIRTHDATE</th>
-              <th class="p-2 text-center border border-slate-400 w-32 bg-[#001848]">ACTIONS</th>
-            </tr>
-          </thead>
-          <tbody class="text-sm divide-y divide-slate-200 bg-white">
-            <tr v-for="(s, index) in femaleStudents" :key="s.id" class="hover:bg-slate-50 border-b border-slate-200">
-              <td class="p-2 text-center font-bold text-slate-500 border border-slate-300">{{ index + 1 }}</td>
-              
-              <template v-if="editingId !== s.id">
-                <td class="p-2 font-bold text-slate-800 border border-slate-300">{{ s.name }}</td>
-                <td class="p-2 text-center font-mono text-xs text-slate-700 border border-slate-300">{{ s.lrn }}</td>
-                <td class="p-2 text-center text-xs text-slate-700 border border-slate-300">{{ s.birthday || '-' }}</td>
-                <td class="p-2 text-center space-x-2 border border-slate-300">
-                  <button @click="startEdit(s)" class="text-blue-600 text-xs hover:underline font-bold">Edit</button>
-                  <button @click="deleteStudent(s.id, s.name)" class="text-red-600 text-xs hover:underline font-bold">Del</button>
-                </td>
-              </template>
-
-              <template v-else>
-                <td class="p-1 border border-slate-300"><input v-model="editForm.name" class="w-full p-1 border rounded text-xs border-emerald-400" /></td>
-                <td class="p-1 border border-slate-300"><input v-model="editForm.lrn" class="w-full p-1 border rounded text-xs border-emerald-400" /></td>
-                <td class="p-1 border border-slate-300"><input v-model="editForm.birthday" type="date" class="w-full p-1 border rounded text-xs border-emerald-400" /></td>
-                <td class="p-1 text-center space-x-1 border border-slate-300">
-                  <button @click="saveEdit" class="bg-emerald-600 text-white px-2 py-1 rounded text-xs hover:bg-emerald-700">Save</button>
-                  <button @click="cancelEdit" class="bg-slate-200 text-slate-700 px-2 py-1 rounded text-xs hover:bg-slate-300">Cancel</button>
-                </td>
-              </template>
-            </tr>
-            <tr v-if="femaleStudents.length === 0">
-              <td colspan="5" class="p-4 text-center text-slate-400 text-xs font-medium border border-slate-300">No Female students recorded.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
+    <div class="overflow-x-auto border rounded-lg">
+      <table class="w-full text-left border-collapse">
+        <thead>
+          <tr class="bg-gray-100 text-gray-700 text-xs uppercase font-semibold border-b">
+            <th class="p-3 w-1/4">LRN</th>
+            <th class="p-3 w-2/4">Student Name</th>
+            <th class="p-3 w-1/4 text-center">Grade (0 - 100)</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+          <tr v-if="loading">
+            <td colspan="3" class="p-8 text-center text-gray-500 flex-col items-center">
+              <svg class="animate-spin h-5 w-5 mr-3 text-blue-500 inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+              Loading roster...
+            </td>
+          </tr>
+          <tr v-else-if="students.length === 0">
+            <td colspan="3" class="p-6 text-center text-gray-500">No students found for this section.</td>
+          </tr>
+          <tr v-for="student in students" :key="student.lrn" class="hover:bg-gray-50 transition-colors">
+            <td class="p-3 font-mono text-sm text-gray-600">{{ student.lrn }}</td>
+            <td class="p-3 font-medium text-gray-800">{{ student.name }}</td>
+            <td class="p-3 text-center">
+              <input 
+                type="number" 
+                v-model.number="grades[student.lrn]" 
+                :disabled="saving || isSyncing"
+                min="0" 
+                max="100" 
+                step="0.01"
+                placeholder="—"
+                class="w-24 text-center border-gray-300 border rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 p-1.5 disabled:bg-gray-100 disabled:text-gray-500"
+                :class="{'border-red-400 bg-red-50': grades[student.lrn] !== undefined && (grades[student.lrn] < 0 || grades[student.lrn] > 100)}"
+              />
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
-  </div>
-</template>
+
+    <!-- Added Termgrade View button to the action row -->
+    <div class="flex justify-end pt-4 gap-3">
+      <button 
+        @click="viewTermGrade" 
+        :disabled="loading"
+        class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-6 rounded-md shadow transition-all disabled:opacity-50"
+      >
+        Termgrade View
+      </button>
+
+      <button 
+        @click="syncGradesToGoogleSheets" 
+        :disabled="isSyncing || loading || students.length === 0"
+        class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-6 rounded-md shadow transition-all disabled:opacity-50 flex items-center gap-2"
+      >
+        <span v-if="isSyncing">
+          <svg class="animate-spin h-4 w-4 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 1To restore the missing **Term Grade View** button, you can insert it into the bottom action row alongside your existing **Sync** and **Save** buttons. 
+
+**1. Add the Button to the Template**
+Locate the `<div class="flex justify-end pt-4 gap-3">` section near the bottom of your `<template>` and add the new button exactly as shown below:
+
+```vue
+    <div class="flex justify-end pt-4 gap-3">
+      <!-- Restored Term Grade View Button -->
+      <button 
+        @click="viewTermGrades" 
+        :disabled="loading"
+        class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-6 rounded-md shadow transition-all disabled:opacity-50 mr-auto"
+      >
+        View Term Grades
+      </button>
+
+      <button 
+        @click="syncGradesToGoogleSheets" 
+        :disabled="isSyncing || loading || students.length === 0"
+        class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-6 rounded-md shadow transition-all disabled:opacity-50 flex items-center gap-2"
+      >
+        <span v-if="isSyncing">
+          <svg class="animate-spin h-4 w-4 text-white inline" xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+          Syncing...
+        </span>
+        <span v-else>Sync to Google Sheets</span>
+      </button>
+
+      <!-- Save Grades Button remains here -->

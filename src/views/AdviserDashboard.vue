@@ -237,10 +237,10 @@ function showMessage(type, text) {
   }
 }
 
-// Function to handle Termgrade View navigation or modal
 function viewTermGrade() {
-  // Add your logic here (e.g., router.push('/termgrades') or toggling a modal state)
-  console.log('Termgrade view clicked')
+  showMessage('info', 'Opening Termgrade View...')
+  // Add your modal or routing logic here, for example:
+  // router.push({ name: 'TermGrades' })
 }
 </script>
 
@@ -340,12 +340,11 @@ function viewTermGrade() {
       </table>
     </div>
 
-    <!-- Added Termgrade View button to the action row -->
     <div class="flex justify-end pt-4 gap-3">
       <button 
         @click="viewTermGrade" 
         :disabled="loading"
-        class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-6 rounded-md shadow transition-all disabled:opacity-50"
+        class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-6 rounded-md shadow transition-all disabled:opacity-50 mr-auto"
       >
         Termgrade View
       </button>
@@ -356,32 +355,32 @@ function viewTermGrade() {
         class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-6 rounded-md shadow transition-all disabled:opacity-50 flex items-center gap-2"
       >
         <span v-if="isSyncing">
-          <svg class="animate-spin h-4 w-4 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 1To restore the missing **Term Grade View** button, you can insert it into the bottom action row alongside your existing **Sync** and **Save** buttons. 
-
-**1. Add the Button to the Template**
-Locate the `<div class="flex justify-end pt-4 gap-3">` section near the bottom of your `<template>` and add the new button exactly as shown below:
-
-```vue
-    <div class="flex justify-end pt-4 gap-3">
-      <!-- Restored Term Grade View Button -->
-      <button 
-        @click="viewTermGrades" 
-        :disabled="loading"
-        class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-6 rounded-md shadow transition-all disabled:opacity-50 mr-auto"
-      >
-        View Term Grades
-      </button>
-
-      <button 
-        @click="syncGradesToGoogleSheets" 
-        :disabled="isSyncing || loading || students.length === 0"
-        class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-6 rounded-md shadow transition-all disabled:opacity-50 flex items-center gap-2"
-      >
-        <span v-if="isSyncing">
-          <svg class="animate-spin h-4 w-4 text-white inline" xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+          <svg class="animate-spin h-4 w-4 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
           Syncing...
         </span>
         <span v-else>Sync to Google Sheets</span>
       </button>
 
-      <!-- Save Grades Button remains here -->
+      <button 
+        @click="saveGrades" 
+        :disabled="saving || isSyncing || loading || students.length === 0"
+        class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-md shadow transition-all disabled:opacity-50 flex items-center gap-2"
+      >
+        <span v-if="saving">
+          <svg class="animate-spin h-4 w-4 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+          Saving...
+        </span>
+        <span v-else>Save Grades</span>
+      </button>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.fade-enter-active, .fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
+}
+</style>

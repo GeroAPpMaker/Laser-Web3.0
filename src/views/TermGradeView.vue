@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { supabase } from '../supabase.js'
 import { useRouter } from 'vue-router'
 
@@ -12,7 +12,20 @@ const mySection = ref(null)
 const selectedTerm = ref('Term 1')
 const rawStudentsData = ref([])
 
-// Standard 8 Core Subjects (Adjust exact string names here to match your Database grade entries)
+// Transmission States
+const isReviewing = ref(false)
+const isFinalized = ref(false)
+const isTransmitting = ref(false)
+const transmissionMessage = ref('')
+
+// Reset transmission state if term changes
+watch(selectedTerm, () => {
+  isReviewing.value = false
+  isFinalized.value = false
+  transmissionMessage.value = ''
+})
+
+// Standard 8 Core Subjects
 const subjectsList = ref([
   'Filipino',
   'English',
@@ -115,6 +128,59 @@ const formattedStudents = computed(() => {
 function goBack() {
   router.push({ name: 'adviser-dashboard' })
 }
+
+// --- Transmission Methods ---
+function reviewGrades() {
+  isReviewing.value = true
+  alert(`Grades for ${selectedTerm.value} are now in review mode. Please verify all entries.`)
+}
+
+function finalizeGrades() {
+  if (!confirm(`Are you sure you want to finalize ${selectedTerm.value}? This will lock further edits.`)) return
+  isFinalized.value = true
+  isReviewing.value = false
+}
+
+async function transmitGrades() {
+  if (!isFinalized.value) {
+    alert("Please finalize the grades before transmitting.")
+    return
+  }
+
+  isTransmitting.value = true
+  transmissionMessage.value = "Transmitting to Google Sheets..."
+
+  // REPLACE WITH YOUR ACTUAL DEPLOYED APPS SCRIPT URL
+  const GOOGLE_SCRIPT_URL = 'YOUR_GOOGLE_SCRIPT_WEB_APP_URL_HERE' 
+
+  try {
+    const payload = {
+      section: mySection.value,
+      teacherEmail: currentUserEmail.value,
+      term: selectedTerm.value,
+      grades: formattedStudents.value // Sends the calculated matrix for this specific term
+    }
+
+    const response = await fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8', 
+      },
+      body: JSON.stringify(payload)
+    })
+
+    const result = await response.json()
+
+    if (result.status === 'error') throw new Error(result.message)
+    
+    transmissionMessage.value = `✅ ${selectedTerm.value} Successfully transmitted!`
+    
+  } catch (error) {
+    transmissionMessage.value = `❌ Transmission failed: ${error.message}`
+  } finally {
+    isTransmitting.value = false
+  }
+}
 </script>
 
 <template>
@@ -133,13 +199,47 @@ function goBack() {
       
       <!-- Term Selector -->
       <div class="flex bg-slate-100 p-1 rounded-lg self-start sm:self-auto">
-        <button v-for="term in ['Term 1', 'Term 2', 'Term 3']" :key="term"
+        <button v-for="term in ['Term 1', 'Term 2', 'Term 3', 'Term 4']" :key="term"
           @click="selectedTerm = term"
           :class="['px-4 py-2 rounded-md text-sm font-medium transition-colors', 
                   selectedTerm === term ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800']">
           {{ term }}
         </button>
       </div>
+    </div>
+
+    <!-- TRANSMISSION TOOLBAR -->
+    <div v-if="!loading && mySection" class="flex flex-wrap items-center gap-3 p-4 bg-white border border-slate-200 rounded-lg shadow-sm">
+      <button 
+        @click="reviewGrades" 
+        :class="isReviewing ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'"
+        class="px-4 py-2 border rounded-md text-sm font-medium transition"
+      >
+        Review {{ selectedTerm }}
+      </button>
+      
+      <button 
+        @click="finalizeGrades" 
+        :disabled="!isReviewing || isFinalized"
+        class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md text-sm font-medium transition"
+      >
+        Finalize {{ selectedTerm }}
+      </button>
+      
+      <button 
+        @click="transmitGrades" 
+        :disabled="!isFinalized || isTransmitting"
+        class="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md text-sm font-medium transition flex items-center gap-2"
+      >
+        <svg v-if="isTransmitting" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+        Transmit {{ selectedTerm }}
+      </button>
+
+      <span v-if="transmissionMessage" class="ml-auto text-sm font-medium text-slate-600">
+        {{ transmissionMessage }}
+      </span>
     </div>
 
     <!-- State Messages -->

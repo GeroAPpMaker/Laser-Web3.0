@@ -29,7 +29,7 @@ watch(selectedTerm, () => {
   transmissionMessage.value = ''
 })
 
-// Standard 8 Core Subjects
+// Updated Core Subjects: Removed MAPEH, added MA and PEH
 const subjectsList = ref([
   'Filipino',
   'English',
@@ -38,7 +38,8 @@ const subjectsList = ref([
   'AP',
   'ValuesEd',
   'TLE',
-  'MAPEH'
+  'MA',
+  'PEH'
 ])
 
 onMounted(async () => {
@@ -313,7 +314,7 @@ async function transmitGrades() {
               <div class="text-[10px] font-mono text-slate-400 font-normal mt-0.5">{{ s.lrn }}</div>
             </td>
             
-            <!-- 8 Fixed Subject Columns -->
+            <!-- Dynamic Subject Columns -->
             <td class="p-4 text-center text-slate-700 font-medium" v-for="subject in subjectsList" :key="subject">
               {{ s[subject] || '-' }}
             </td>

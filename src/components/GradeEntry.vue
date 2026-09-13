@@ -1,27 +1,29 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted } from 'vue'
-import { supabase } from '../supabase.js' // Updated to match your root src folder
+import { supabase } from '../supabase.js'
 
 // State
 const loading = ref(false)
 const saving = ref(false)
+const isSyncing = ref(false)
 const statusMessage = ref({ type: '', text: '' })
 let messageTimer = null
 
 const teacherEmail = ref('')
 const assignments = ref([])
 const students = ref([])
-const grades = ref({}) // Key: LRN, Value: numeric grade
+const grades = ref({}) // Key: Lrv, Value: numeric grade
 
 // Selection Filters
 const selectedAssignment = ref(null)
 const selectedTerm = ref('term 1')
-const schoolYear = ref('2026-2027') // Ideally fetched from a settings table
+const schoolYear = ref('2026-2027') 
 
-// Updated to term 3 only
 const terms = ['term 1', 'term 2', 'term 3']
 
-// Fetch Logged-in Teacher's Assignments
+// Explicitly includes MA and PEH to match the database and Google Sheets matrix
+const ALL_SUBJECTS = ['Filipino', 'English', 'Mathematics', 'Science', 'AP', 'ValuesEd', 'TLE', 'MA', 'PEH']
+
 onMounted(async () => {
   const { data: { user } } = await supabase.auth.getUser()
   if (user?.email) {
@@ -54,7 +56,6 @@ async function fetchAssignments() {
   loading.value = false
 }
 
-// Fetch Students & Existing Grades when selection changes
 watch([selectedAssignment, selectedTerm], async () => {
   if (!selectedAssignment.value) return
   await loadClassData()
@@ -68,7 +69,6 @@ async function loadClassData() {
 
   const { section: currentSection, subject: currentSubject } = selectedAssignment.value
 
-  // 1. Fetch Students in Section
   const { data: studentData, error: studentErr } = await supabase
     .from('students')
     .select('lrn, name')
@@ -83,7 +83,6 @@ async function loadClassData() {
 
   students.value = studentData || []
 
-  // 2. Fetch Existing Grades
   const { data: gradeData, error: gradeErr } = await supabase
     .from('grades')
     .select('lrn, grade')
@@ -103,7 +102,6 @@ async function loadClassData() {
   loading.value = false
 }
 
-// Save or Update Grades (Batch Upsert)
 async function saveGrades() {
   saving.value = true
   statusMessage.value = { type: '', text: '' }
@@ -116,7 +114,6 @@ async function saveGrades() {
     if (rawGrade !== undefined && rawGrade !== null && rawGrade !== '') {
       const parsedGrade = parseFloat(rawGrade)
       
-      // Strict validation constraint before hitting the database
       if (isNaN(parsedGrade) || parsedGrade < 0 || parsedGrade > 100) {
         hasValidationError = true
       } else {
@@ -159,12 +156,81 @@ async function saveGrades() {
   saving.value = false
 }
 
+async function syncGradesToGoogleSheets() {
+  if (!selectedAssignment.value) return
+  
+  const GOOGLE_SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL
+  if (!GOOGLE_SCRIPT_URL) {
+    showMessage('error', 'VITE_GOOGLE_SCRIPT_URL is missing.')
+    return
+  }
+
+  isSyncing.value = true
+  showMessage('info', 'Building section matrix and syncing to Google Sheets...')
+
+  try {
+    const targetSection = selectedAssignment.value.section
+
+    const { data: sectionStudents } = await supabase
+      .from('students')
+      .select('lrn, name')
+      .eq('section', targetSection)
+      .order('name')
+
+    const { data: allSectionGrades } = await supabase
+      .from('grades')
+      .select('lrn, subject, grade')
+      .eq('section', targetSection)
+      .eq('term', selectedTerm.value)
+      .eq('school_year', schoolYear.value)
+
+    const formattedGrades = sectionStudents.map(student => {
+      const studentGrades = { lrn: student.lrn, name: student.name }
+      let total = 0
+      let count = 0
+
+      ALL_SUBJECTS.forEach(subj => {
+        const match = allSectionGrades?.find(g => g.lrn === student.lrn && g.subject === subj)
+        if (match && match.grade !== null) {
+          studentGrades[subj] = match.grade
+          total += Number(match.grade)
+          count++
+        } else {
+          studentGrades[subj] = ''
+        }
+      })
+
+      studentGrades.average = count > 0 ? (total / count).toFixed(2) : ''
+      return studentGrades
+    })
+
+    const payload = {
+      action: 'sync_grades',
+      section: targetSection,
+      term: selectedTerm.value,
+      grades: formattedGrades
+    }
+
+    await fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    })
+
+    showMessage('success', `Grades synced to ${selectedTerm.value} tab in Google Sheets!`)
+  } catch (err) {
+    showMessage('error', `Sync failed: ${err.message}`)
+  } finally {
+    isSyncing.value = false
+  }
+}
+
 function showMessage(type, text) {
   statusMessage.value = { type, text }
   if (messageTimer) clearTimeout(messageTimer)
   
-  // Auto-dismiss success messages after 4 seconds
-  if (type === 'success') {
+  if (type === 'success' || type === 'info') {
     messageTimer = setTimeout(() => {
       statusMessage.value = { type: '', text: '' }
     }, 4000)
@@ -190,7 +256,7 @@ function showMessage(type, text) {
         <select 
           id="assignment-select"
           v-model="selectedAssignment" 
-          :disabled="loading || saving"
+          :disabled="loading || saving || isSyncing"
           class="w-full border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border disabled:bg-gray-100"
         >
           <option v-if="assignments.length === 0" disabled value="null">No assignments found</option>
@@ -205,7 +271,7 @@ function showMessage(type, text) {
         <select 
           id="term-select"
           v-model="selectedTerm" 
-          :disabled="loading || saving"
+          :disabled="loading || saving || isSyncing"
           class="w-full border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border capitalize disabled:bg-gray-100"
         >
           <option v-for="t in terms" :key="t" :value="t" class="capitalize">{{ t }}</option>
@@ -216,7 +282,11 @@ function showMessage(type, text) {
     <Transition name="fade">
       <div 
         v-if="statusMessage.text" 
-        :class="statusMessage.type === 'error' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'"
+        :class="{
+          'bg-red-50 text-red-700 border-red-200': statusMessage.type === 'error',
+          'bg-green-50 text-green-700 border-green-200': statusMessage.type === 'success',
+          'bg-blue-50 text-blue-700 border-blue-200': statusMessage.type === 'info'
+        }"
         class="p-3 rounded-md border text-sm font-medium transition-all"
         role="alert"
       >
@@ -250,7 +320,7 @@ function showMessage(type, text) {
               <input 
                 type="number" 
                 v-model.number="grades[student.lrn]" 
-                :disabled="saving"
+                :disabled="saving || isSyncing"
                 min="0" 
                 max="100" 
                 step="0.01"
@@ -264,10 +334,22 @@ function showMessage(type, text) {
       </table>
     </div>
 
-    <div class="flex justify-end pt-4">
+    <div class="flex justify-end pt-4 gap-3">
+      <button 
+        @click="syncGradesToGoogleSheets" 
+        :disabled="isSyncing || loading || students.length === 0"
+        class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-6 rounded-md shadow transition-all disabled:opacity-50 flex items-center gap-2"
+      >
+        <span v-if="isSyncing">
+          <svg class="animate-spin h-4 w-4 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+          Syncing...
+        </span>
+        <span v-else>Sync to Google Sheets</span>
+      </button>
+
       <button 
         @click="saveGrades" 
-        :disabled="saving || loading || students.length === 0"
+        :disabled="saving || isSyncing || loading || students.length === 0"
         class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-md shadow transition-all disabled:opacity-50 flex items-center gap-2"
       >
         <span v-if="saving">

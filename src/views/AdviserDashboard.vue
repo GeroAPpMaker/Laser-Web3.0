@@ -112,14 +112,14 @@ async function saveEdit() {
   }
 }
 
-// --- Sync to Google Sheets Method ---
+// Sync Masterlist to Google Sheets (Male/Female Tabs)
 async function syncRecordsToSheet() {
   if (students.value.length === 0) {
     syncMessage.value = "No students to sync."
     return
   }
 
-  const GOOGLE_SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL
+  const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz2hsPLhUDIt8rPyiWq1VnzblbdwqGIXvw42okKIhibjnL44zVTiBZOeNHJRSU_xVbb/exec'
 
   if (!GOOGLE_SCRIPT_URL) {
     syncMessage.value = "❌ Error: VITE_GOOGLE_SCRIPT_URL is missing."
@@ -136,31 +136,24 @@ async function syncRecordsToSheet() {
       students: students.value
     }
 
-    // mode: 'no-cors' tells the browser to send the data and ignore Google's strict redirect response
     await fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       mode: 'no-cors', 
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8'
-      },
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     })
 
-    // With no-cors, we can't read the response text, but if fetch didn't throw a network error, it succeeded!
     syncMessage.value = `✅ Records successfully synced! (${new Date().toLocaleTimeString()})`
-    
   } catch (error) {
     syncMessage.value = `❌ Sync failed to send: ${error.message}`
   } finally {
     isSyncing.value = false
   }
 }
-
 </script>
 
 <template>
   <div class="max-w-screen-2xl mx-auto p-6 space-y-6">
-    <!-- Header -->
     <div class="border-b pb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <h1 class="text-3xl font-bold text-slate-800">My Advisory Section</h1>
@@ -169,9 +162,6 @@ async function syncRecordsToSheet() {
         </p>
       </div>
       <div class="flex flex-col sm:flex-row gap-3">
-        <router-link to="/term-grade" class="inline-flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors shadow-sm">
-          View Term Grades Summary &rarr;
-        </router-link>
         <router-link to="/teacher" class="inline-flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors shadow-sm">
           TEACHER DASHBOARD &rarr;
         </router-link>
@@ -205,7 +195,7 @@ async function syncRecordsToSheet() {
     <div v-if="loading" class="text-slate-500">Loading advisory data...</div>
     <div v-if="errorMessage" class="p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{{ errorMessage }}</div>
 
-    <!-- Side-by-Side Tables -->
+    <!-- Side-by-Side Male/Female Tables -->
     <div v-if="!loading && mySection" class="grid grid-cols-1 xl:grid-cols-2 gap-8 items-start">
       
       <!-- MALE TABLE -->

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { supabase } from '../supabase.js' // Adjust path if using lib/supabase.js
+import { supabase } from '../supabase.js' 
 
 const loading = ref(true)
 const errorMessage = ref('')
@@ -13,6 +13,10 @@ const newStudent = ref({ lrn: '', name: '', sex: 'M', birthday: '' })
 const editingId = ref(null)
 const editForm = ref({})
 
+// Transmission states
+const isSyncing = ref(false)
+const syncMessage = ref('')
+
 onMounted(async () => {
   await initializeAdviserData()
 })
@@ -21,12 +25,10 @@ async function initializeAdviserData() {
   loading.value = true
   errorMessage.value = ''
   try {
-    // 1. Get logged-in user
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) throw new Error('Not authenticated. Please log in.')
     currentUserEmail.value = user.email
 
-    // 2. Determine adviser's assigned section
     const { data: sectionData, error: sectionError } = await supabase
       .from('adviser_sections')
       .select('section')
@@ -36,7 +38,6 @@ async function initializeAdviserData() {
     if (sectionError) throw new Error('No advisory section assigned to your account.')
     mySection.value = sectionData.section
 
-    // 3. Fetch students for this section
     await fetchStudents()
   } catch (err) {
     errorMessage.value = err.message
@@ -78,7 +79,6 @@ async function deleteStudent(id, name) {
   else fetchStudents()
 }
 
-// --- Inline Edit Methods ---
 function startEdit(student) {
   editingId.value = student.id
   editForm.value = { ...student }
@@ -105,6 +105,43 @@ async function saveEdit() {
   } else {
     editingId.value = null
     fetchStudents()
+  }
+}
+
+// --- Sync to Google Sheets Method ---
+async function syncRecordsToSheet() {
+  if (students.value.length === 0) {
+    syncMessage.value = "No students to sync."
+    return
+  }
+
+  isSyncing.value = true
+  syncMessage.value = "Syncing records to Google Sheets..."
+  
+  // PASTE YOUR EXISTING ROUTER WEB APP URL HERE
+  const GOOGLE_SCRIPT_URL = 'YOUR_GOOGLE_SCRIPT_WEB_APP_URL_HERE' 
+
+  try {
+    const payload = {
+      action: 'sync_records', // This tells the GAS script what to do
+      section: mySection.value,
+      students: students.value
+    }
+
+    const response = await fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    })
+
+    const result = await response.json()
+    if (result.status === 'error') throw new Error(result.message)
+    
+    syncMessage.value = `✅ Records successfully synced! (Last synced: ${new Date().toLocaleTimeString()})`
+  } catch (error) {
+    syncMessage.value = `❌ Sync failed: ${error.message}`
+  } finally {
+    isSyncing.value = false
   }
 }
 </script>
@@ -136,6 +173,21 @@ async function saveEdit() {
           TEACHER DASHBOARD (enter grades here) &rarr;
         </router-link>
       </div>
+    </div>
+
+    <!-- Sync Toolbar -->
+    <div v-if="!loading && mySection" class="flex flex-wrap items-center gap-4 bg-white p-4 border border-slate-200 rounded-lg shadow-sm">
+      <button 
+        @click="syncRecordsToSheet" 
+        :disabled="isSyncing"
+        class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-sm flex items-center gap-2"
+      >
+        <svg v-if="isSyncing" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+        Update Records to Google Sheets
+      </button>
+      <span v-if="syncMessage" class="text-sm font-medium text-slate-700">{{ syncMessage }}</span>
     </div>
 
     <div v-if="loading" class="text-slate-500">Loading advisory data...</div>

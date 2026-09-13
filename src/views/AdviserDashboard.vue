@@ -118,12 +118,12 @@ async function syncRecordsToSheet() {
   isSyncing.value = true
   syncMessage.value = "Syncing records to Google Sheets..."
   
-  // PASTE YOUR EXISTING ROUTER WEB APP URL HERE
-  const GOOGLE_SCRIPT_URL = 'YOUR_GOOGLE_SCRIPT_WEB_APP_URL_HERE' 
+  // PASTE YOUR ACTUAL SCRIPT URL HERE
+  const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxAnFC5ZjGS2NrKVKBslFDl56Lf98k2TeDoNzjN0lR7wk-gB5rRhM0hh_5-5FaIW5tW/exec' 
 
   try {
     const payload = {
-      action: 'sync_records', // This tells the GAS script what to do
+      action: 'sync_records',
       section: mySection.value,
       students: students.value
     }
@@ -134,7 +134,17 @@ async function syncRecordsToSheet() {
       body: JSON.stringify(payload)
     })
 
-    const result = await response.json()
+    // READ AS TEXT FIRST to prevent the JSON crash
+    const rawText = await response.text()
+    
+    let result;
+    try {
+      result = JSON.parse(rawText)
+    } catch (e) {
+      console.error("GOOGLE RETURNED THIS INSTEAD OF JSON:", rawText)
+      throw new Error("Google blocked the request. Press F12, go to the Console tab, and look at the red text to see why.")
+    }
+
     if (result.status === 'error') throw new Error(result.message)
     
     syncMessage.value = `✅ Records successfully synced! (Last synced: ${new Date().toLocaleTimeString()})`

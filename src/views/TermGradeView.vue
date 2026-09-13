@@ -10,7 +10,9 @@ const errorMessage = ref('')
 const currentUserEmail = ref('')
 const mySection = ref(null)
 
-const selectedTerm = ref('Term 1')
+// Updated to 3 terms with exact matching strings
+const termsList = ref(['term 1', 'term 2', 'term 3'])
+const selectedTerm = ref('term 1')
 const rawStudentsData = ref([])
 let realtimeChannel = null
 
@@ -50,7 +52,6 @@ onUnmounted(() => {
   }
 })
 
-// Listens to the database and triggers a refresh automatically
 function setupRealtimeSubscription() {
   realtimeChannel = supabase
     .channel('grades-updates')
@@ -116,7 +117,7 @@ async function loadAdviserData() {
     // 4. Combine students and grades in memory
     rawStudentsData.value = students.map(s => ({
       ...s,
-      grades: (grades || []).filter(g => g.lrn === s.lrn)
+      grades: (grades || []).filter(g => String(g.lrn).trim() === String(s.lrn).trim())
     }))
 
   } catch (err) {
@@ -127,16 +128,27 @@ async function loadAdviserData() {
   }
 }
 
-// Map subject grades to columns per student
+// Map subject grades to columns per student with flexible string matching
 const formattedStudents = computed(() => {
   return rawStudentsData.value.map(student => {
-    const termGrades = student.grades.filter(g => g.term === selectedTerm.value)
+    // Case-insensitive & trim-safe term filtering
+    const termGrades = student.grades.filter(
+      g => String(g.term).toLowerCase().trim() === selectedTerm.value.toLowerCase().trim()
+    )
+    
     const subjectGrades = {}
     let total = 0
     let count = 0
 
     termGrades.forEach(g => {
-      subjectGrades[g.subject] = g.grade
+      // Find matching subject from subjectList regardless of casing
+      const matchedSubject = subjectsList.value.find(
+        s => s.toLowerCase().trim() === String(g.subject).toLowerCase().trim()
+      )
+
+      const key = matchedSubject || g.subject
+      subjectGrades[key] = g.grade
+
       if (g.grade !== null && g.grade !== undefined && g.grade !== '') {
         total += Number(g.grade)
         count++
@@ -218,7 +230,7 @@ async function transmitGrades() {
           <button @click="goBack" class="text-slate-500 hover:text-slate-800 text-sm font-medium">&larr; Back</button>
           <h1 class="text-3xl font-bold text-slate-800">Term Grades Summary</h1>
           
-          <!-- Manual Refresh Button -->
+          <!-- Refresh Button -->
           <button @click="refreshData" class="text-slate-400 hover:text-blue-600 transition-colors" title="Force Refresh">
             <svg :class="{'animate-spin text-blue-600': isRefreshing}" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -230,11 +242,11 @@ async function transmitGrades() {
         </p>
       </div>
       
-      <!-- Term Selector -->
+      <!-- 3-Term Selector -->
       <div class="flex bg-slate-100 p-1 rounded-lg self-start sm:self-auto">
-        <button v-for="term in ['Term 1', 'Term 2', 'Term 3', 'Term 4']" :key="term"
+        <button v-for="term in termsList" :key="term"
           @click="selectedTerm = term"
-          :class="['px-4 py-2 rounded-md text-sm font-medium transition-colors', 
+          :class="['px-4 py-2 rounded-md text-sm font-medium capitalize transition-colors', 
                   selectedTerm === term ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800']">
           {{ term }}
         </button>
@@ -246,7 +258,7 @@ async function transmitGrades() {
       <button 
         @click="reviewGrades" 
         :class="isReviewing ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'"
-        class="px-4 py-2 border rounded-md text-sm font-medium transition"
+        class="px-4 py-2 border rounded-md text-sm font-medium transition capitalize"
       >
         Review {{ selectedTerm }}
       </button>
@@ -254,7 +266,7 @@ async function transmitGrades() {
       <button 
         @click="finalizeGrades" 
         :disabled="!isReviewing || isFinalized"
-        class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md text-sm font-medium transition"
+        class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md text-sm font-medium transition capitalize"
       >
         Finalize {{ selectedTerm }}
       </button>
@@ -262,7 +274,7 @@ async function transmitGrades() {
       <button 
         @click="transmitGrades" 
         :disabled="!isFinalized || isTransmitting"
-        class="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md text-sm font-medium transition flex items-center gap-2"
+        class="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md text-sm font-medium transition flex items-center gap-2 capitalize"
       >
         <svg v-if="isTransmitting" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />

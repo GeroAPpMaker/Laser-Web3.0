@@ -119,7 +119,7 @@ async function syncRecordsToSheet() {
     return
   }
 
-  const GOOGLE_SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL
+  const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbybs2g-PqNNw0Ge4iLWk8CfZNwps5krInwJcp4p9rbCOSlb6kBzbjxPzqRilUDp_EVi/exec'
 
   if (!GOOGLE_SCRIPT_URL) {
     syncMessage.value = "❌ Error: VITE_GOOGLE_SCRIPT_URL is missing."

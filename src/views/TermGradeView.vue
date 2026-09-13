@@ -193,7 +193,7 @@ async function transmitGrades() {
   isTransmitting.value = true
   transmissionMessage.value = "Transmitting to Google Sheets..."
 
-  const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz2hsPLhUDIt8rPyiWq1VnzblbdwqGIXvw42okKIhibjnL44zVTiBZOeNHJRSU_xVbb/exec' 
+  const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbybs2g-PqNNw0Ge4iLWk8CfZNwps5krInwJcp4p9rbCOSlb6kBzbjxPzqRilUDp_EVi/exec' 
 
   try {
     const payload = {

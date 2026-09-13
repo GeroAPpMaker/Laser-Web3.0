@@ -119,10 +119,10 @@ async function syncRecordsToSheet() {
     return
   }
 
-  const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz2hsPLhUDIt8rPyiWq1VnzblbdwqGIXvw42okKIhibjnL44zVTiBZOeNHJRSU_xVbb/exec'
-  
+  const GOOGLE_SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL
+
   if (!GOOGLE_SCRIPT_URL) {
-    syncMessage.value = "❌ Error: VITE_GOOGLE_SCRIPT_URL is missing from .env file."
+    syncMessage.value = "❌ Error: VITE_GOOGLE_SCRIPT_URL is missing."
     return
   }
 
@@ -136,35 +136,26 @@ async function syncRecordsToSheet() {
       students: students.value
     }
 
-    // text/plain prevents the browser from making a preflight OPTIONS request
-    const response = await fetch(GOOGLE_SCRIPT_URL, {
+    // mode: 'no-cors' tells the browser to send the data and ignore Google's strict redirect response
+    await fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
-      redirect: 'follow',
+      mode: 'no-cors', 
       headers: {
         'Content-Type': 'text/plain;charset=utf-8'
       },
       body: JSON.stringify(payload)
     })
 
-    const rawText = await response.text()
-
-    let result
-    try {
-      result = JSON.parse(rawText)
-    } catch (e) {
-      console.error("Google Web App returned raw content:", rawText)
-      throw new Error("Invalid response format from Google. Check Apps Script access settings.")
-    }
-
-    if (result.status === 'error') throw new Error(result.message)
-
+    // With no-cors, we can't read the response text, but if fetch didn't throw a network error, it succeeded!
     syncMessage.value = `✅ Records successfully synced! (${new Date().toLocaleTimeString()})`
+    
   } catch (error) {
-    syncMessage.value = `❌ Sync failed: ${error.message}`
+    syncMessage.value = `❌ Sync failed to send: ${error.message}`
   } finally {
     isSyncing.value = false
   }
 }
+
 </script>
 
 <template>

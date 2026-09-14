@@ -247,7 +247,7 @@ function printCard() {
         
         <!-- Print Card Button -->
         <button @click="printCard" class="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm flex items-center gap-2">
-          Print Card
+          Go to GradeSheets
         </button>
 
         <button @click="syncRecordsToSheet" :disabled="isSyncing" class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm flex items-center gap-2">

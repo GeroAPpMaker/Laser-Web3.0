@@ -4,12 +4,14 @@ import { useRouter } from 'vue-router'
 import { supabase } from '../supabase.js'
 import DashboardHeader from '../components/DashboardHeader.vue'
 import GradeEntry from '../components/GradeEntry.vue'
+import GradeSheetUserManual from '../components/GradeSheetUserManual.vue'
 import { fetchCurrentProfile } from '../utils/auth'
 
 const router = useRouter()
 const userEmail = ref('')
 const loadError = ref('')
 const isAdviser = ref(false)
+const isManualOpen = ref(false)
 
 const welcomeName = computed(() => {
   if (!userEmail.value) return 'Teacher'
@@ -83,9 +85,26 @@ function goToAdviserDashboard() {
 
       <!-- Grade Entry Section -->
       <div class="w-full bg-white border border-slate-200 rounded-xl shadow-sm p-6">
-        <h2 class="text-xl font-bold text-slate-800 mb-4 border-b pb-2">Subject Grades Entry</h2>
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 border-b pb-3 gap-4">
+          <h2 class="text-xl font-bold text-slate-800">Subject Grades Entry</h2>
+          
+          <!-- User Manual Trigger Button -->
+          <button 
+            @click="isManualOpen = true" 
+            class="bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 px-4 py-2 rounded-lg font-semibold text-sm transition-colors shadow-sm flex items-center gap-2"
+          >
+            📖 User Manual
+          </button>
+        </div>
+        
         <GradeEntry />
       </div>
     </main>
+
+    <!-- User Manual Modal -->
+    <GradeSheetUserManual 
+      :is-open="isManualOpen" 
+      @close="isManualOpen = false" 
+    />
   </div>
 </template>

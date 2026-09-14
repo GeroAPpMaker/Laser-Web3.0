@@ -112,6 +112,30 @@ async function saveEdit() {
   }
 }
 
+// --- Fetch Target Sheet ID Helper ---
+async function getTargetSheetId(email) {
+  try {
+    const response = await fetch('/Adviser_Mapping.csv')
+    const csvText = await response.text()
+    
+    // Parse CSV rows
+    const lines = csvText.split('\n')
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (!line) continue
+      
+      const [fileId, emailAddress] = line.split(',')
+      if (emailAddress && emailAddress.trim() === email) {
+        return fileId.trim()
+      }
+    }
+    return null
+  } catch (error) {
+    console.error("Failed to load Adviser_Mapping.csv", error)
+    return null
+  }
+}
+
 // --- Sync to Google Sheets Method ---
 async function syncRecordsToSheet() {
   if (students.value.length === 0) {
@@ -119,24 +143,29 @@ async function syncRecordsToSheet() {
     return
   }
 
-  const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbybs2g-PqNNw0Ge4iLWk8CfZNwps5krInwJcp4p9rbCOSlb6kBzbjxPzqRilUDp_EVi/exec'
+  isSyncing.value = true
+  syncMessage.value = "Locating your mapped Google Sheet..."
 
-  if (!GOOGLE_SCRIPT_URL) {
-    syncMessage.value = "❌ Error: VITE_GOOGLE_SCRIPT_URL is missing."
+  // Look up mapped Sheet ID for the logged-in user
+  const targetSheetId = await getTargetSheetId(currentUserEmail.value)
+  if (!targetSheetId) {
+    syncMessage.value = `❌ Error: No mapped file found in Adviser_Mapping.csv for ${currentUserEmail.value}`
+    isSyncing.value = false
     return
   }
 
-  isSyncing.value = true
+  const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbybs2g-PqNNw0Ge4iLWk8CfZNwps5krInwJcp4p9rbCOSlb6kBzbjxPzqRilUDp_EVi/exec'
+
   syncMessage.value = "Syncing records to Google Sheets..."
 
   try {
     const payload = {
       action: 'sync_records',
       section: mySection.value,
-      students: students.value
+      students: students.value,
+      spreadsheetId: targetSheetId // dynamically pass the spreadsheet based on email
     }
 
-    // mode: 'no-cors' tells the browser to send the data and ignore Google's strict redirect response
     await fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       mode: 'no-cors', 
@@ -146,7 +175,6 @@ async function syncRecordsToSheet() {
       body: JSON.stringify(payload)
     })
 
-    // With no-cors, we can't read the response text, but if fetch didn't throw a network error, it succeeded!
     syncMessage.value = `✅ Records successfully synced! (${new Date().toLocaleTimeString()})`
     
   } catch (error) {
@@ -156,6 +184,13 @@ async function syncRecordsToSheet() {
   }
 }
 
+// --- Print Card Method ---
+function printCard() {
+  // Option 1: Trigger browser print
+  window.print()
+  // Option 2 (If you have a dedicated route):
+  // router.push({ path: '/print-card', query: { section: mySection.value } })
+}
 </script>
 
 <template>
@@ -178,9 +213,9 @@ async function syncRecordsToSheet() {
       </div>
     </div>
 
-    <!-- Toolbar: Add Student & Sync -->
-    <div v-if="!loading && mySection" class="bg-white p-4 border border-slate-200 rounded-lg shadow-sm flex flex-col lg:flex-row gap-4 items-center justify-between">
-      <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+    <!-- Toolbar: Add Student & Sync / Print -->
+    <div v-if="!loading && mySection" class="bg-white p-4 border border-slate-200 rounded-lg shadow-sm flex flex-col xl:flex-row gap-4 items-center justify-between">
+      <div class="flex flex-wrap items-center gap-2 w-full xl:w-auto">
         <span class="font-bold text-sm text-slate-700 mr-2">Add Student:</span>
         <input v-model="newStudent.lrn" placeholder="New LRN" class="p-2 border rounded text-xs w-32" />
         <input v-model="newStudent.name" placeholder="Full Name" class="p-2 border rounded text-xs w-48" />
@@ -194,8 +229,14 @@ async function syncRecordsToSheet() {
         </button>
       </div>
 
-      <div class="flex items-center gap-3 ml-auto">
+      <div class="flex flex-wrap items-center gap-3 xl:ml-auto">
         <span v-if="syncMessage" class="text-xs font-medium text-slate-600">{{ syncMessage }}</span>
+        
+        <!-- Print Card Button -->
+        <button @click="printCard" class="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm flex items-center gap-2">
+          Print Card
+        </button>
+
         <button @click="syncRecordsToSheet" :disabled="isSyncing" class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm flex items-center gap-2">
           Sync to Google Sheets
         </button>

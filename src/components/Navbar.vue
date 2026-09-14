@@ -43,6 +43,7 @@ const officeItems = [
 
 const helpItems = [
   { href: 'FAQ.html', label: 'FAQs', target: '_blank', icon: 'help' },
+  { href: 'GradesheetUserManual.pdf', label: 'Grade Sheet User Manual', target: '_blank', icon: 'book' },
   { to: '/contact', label: 'Contact Us', icon: 'headset' },
   { divider: true },
   {

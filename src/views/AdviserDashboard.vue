@@ -7,6 +7,7 @@ const errorMessage = ref('')
 const currentUserEmail = ref('')
 const mySection = ref(null)
 const students = ref([])
+const googleSheetLink = ref('')
 
 // Split students into Male and Female arrays
 const maleStudents = computed(() => students.value.filter(s => s.sex === 'M'))
@@ -41,6 +42,17 @@ async function initializeAdviserData() {
       
     if (sectionError) throw new Error('No advisory section assigned to your account.')
     mySection.value = sectionData.section
+
+    // Fetch adviser's Google Sheet link from Supabase table
+    const { data: sheetData } = await supabase
+      .from('adviser_sheets')
+      .select('google_sheet_link')
+      .eq('email_address', currentUserEmail.value)
+      .single()
+
+    if (sheetData) {
+      googleSheetLink.value = sheetData.google_sheet_link
+    }
 
     await fetchStudents()
   } catch (err) {
@@ -186,10 +198,11 @@ async function syncRecordsToSheet() {
 
 // --- Print Card Method ---
 function printCard() {
-  // Option 1: Trigger browser print
-  window.print()
-  // Option 2 (If you have a dedicated route):
-  // router.push({ path: '/print-card', query: { section: mySection.value } })
+  if (googleSheetLink.value) {
+    window.open(googleSheetLink.value, '_blank')
+  } else {
+    alert('No mapped Google Sheet link found for this account in Supabase.')
+  }
 }
 </script>
 

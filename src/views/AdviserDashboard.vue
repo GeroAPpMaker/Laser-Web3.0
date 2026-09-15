@@ -187,7 +187,8 @@ async function syncRecordsToSheet() {
       body: JSON.stringify(payload)
     })
 
-    syncMessage.value = `✅ Records successfully synced! (${new Date().toLocaleTimeString()})`
+    // 'no-cors' hides response body details; reflect dispatch in UI
+    syncMessage.value = `🚀 Sync request sent successfully! (${new Date().toLocaleTimeString()})`
     
   } catch (error) {
     syncMessage.value = `❌ Sync failed to send: ${error.message}`

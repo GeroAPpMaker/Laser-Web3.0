@@ -124,30 +124,6 @@ async function saveEdit() {
   }
 }
 
-// --- Fetch Target Sheet ID Helper ---
-async function getTargetSheetId(email) {
-  try {
-    const response = await fetch('/Adviser_Mapping.csv')
-    const csvText = await response.text()
-    
-    // Parse CSV rows
-    const lines = csvText.split('\n')
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim()
-      if (!line) continue
-      
-      const [fileId, emailAddress] = line.split(',')
-      if (emailAddress && emailAddress.trim() === email) {
-        return fileId.trim()
-      }
-    }
-    return null
-  } catch (error) {
-    console.error("Failed to load Adviser_Mapping.csv", error)
-    return null
-  }
-}
-
 // --- Sync to Google Sheets Method ---
 async function syncRecordsToSheet() {
   if (students.value.length === 0) {
@@ -156,26 +132,17 @@ async function syncRecordsToSheet() {
   }
 
   isSyncing.value = true
-  syncMessage.value = "Locating your mapped Google Sheet..."
-
-  // Look up mapped Sheet ID for the logged-in user
-  const targetSheetId = await getTargetSheetId(currentUserEmail.value)
-  if (!targetSheetId) {
-    syncMessage.value = `❌ Error: No mapped file found in Adviser_Mapping.csv for ${currentUserEmail.value}`
-    isSyncing.value = false
-    return
-  }
+  syncMessage.value = "Syncing records to Google Sheets..."
 
   const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbybs2g-PqNNw0Ge4iLWk8CfZNwps5krInwJcp4p9rbCOSlb6kBzbjxPzqRilUDp_EVi/exec'
 
-  syncMessage.value = "Syncing records to Google Sheets..."
-
   try {
+    // Only sending action, section, and students. 
+    // The backend Google Script will use the 'section' to find the Sheet ID.
     const payload = {
       action: 'sync_records',
       section: mySection.value,
-      students: students.value,
-      spreadsheetId: targetSheetId // dynamically pass the spreadsheet based on email
+      students: students.value
     }
 
     await fetch(GOOGLE_SCRIPT_URL, {
